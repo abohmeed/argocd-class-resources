@@ -1,25 +1,25 @@
 1. Create a new YAML file called `argocd.yaml` and add the following:
 
 ```yaml
-   apiVersion: argoproj.io/v1alpha1
-   kind: Application
-   metadata:
-     name: argocd
-     namespace: argocd
-   spec:
-     project: default
-     source:
-       repoURL: 'https://gitlab.com/[your username]/samplegitopsapp.git'
-       path: argo-cd
-       targetRevision: main
-     destination:
-       server: 'https://kubernetes.default.svc'
-       namespace: argocd
-     syncPolicy:
-       automated:
-         selfHeal: true
-         prune: true
-   ```
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://gitlab.com/[your username]/samplegitopsapp.git'
+    path: argo-cd
+    targetRevision: main
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: argocd
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+```
 
 3. Apply the above configuration by running:
 
