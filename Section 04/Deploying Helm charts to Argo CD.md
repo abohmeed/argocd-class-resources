@@ -35,37 +35,37 @@
 
 7. Go to the terminal and in the `argocd` directory create a new application manifest for HTTPbin. The filename should be `httpbin.yaml` and the contents should be as follows:
 
-   ```yaml
-   apiVersion: argoproj.io/v1alpha1
-   kind: Application
-   metadata:
-     name: httpbin
-     namespace: argocd
-   spec:
-     project: default
-     source:
-       chart: httpbin
-       repoURL: https://matheusfm.dev/charts
-       targetRevision: 0.1.1
-       helm:
-         releaseName: httpbin
-     destination:
-       server: 'https://kubernetes.default.svc'
-       namespace: default
-     syncPolicy:
-       automated:
-         selfHeal: true
-         prune: true
-   ```
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: httpbin
+  namespace: argocd
+spec:
+  project: default
+  source:
+    chart: httpbin
+    repoURL: https://matheusfm.dev/charts
+    targetRevision: 0.1.1
+    helm:
+      releaseName: httpbin
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: default
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+```
 
 8. Create and push a merge request:
 
-   ```bash
-   git checkout -b feature/add-httpbin-chart
-   git add httpbin.yaml
-   git commit -m "Adds the HTTPbin chart"
-   git push --set-upstream origin feature/add-httpbin-chart
-   ```
+```bash
+git checkout -b feature/add-httpbin-chart
+git add httpbin.yaml
+git commit -m "Adds the HTTPbin chart"
+git push --set-upstream origin feature/add-httpbin-chart
+```
 
 9. Copy the MR link that is displayed and paste it in new browser tab.
 
@@ -77,42 +77,42 @@
 
 13. The contents of the file should look as follows:
 
-    ```yaml
-    apiVersion: argoproj.io/v1alpha1
-    kind: Application
-    metadata:
-      name: httpbin
-      namespace: argocd
-    spec:
-      project: default
-      source:
-        chart: httpbin
-        repoURL: https://matheusfm.dev/charts
-        targetRevision: 0.1.1
-        helm:
-          releaseName: httpbin
-          values: |
-            service:
-              type: NodePort
-      destination:
-        server: 'https://kubernetes.default.svc'
-        namespace: default
-      syncPolicy:
-        automated:
-          selfHeal: true
-          prune: true
-    ```
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: httpbin
+  namespace: argocd
+spec:
+  project: default
+  source:
+    chart: httpbin
+    repoURL: https://matheusfm.dev/charts
+    targetRevision: 0.1.1
+    helm:
+      releaseName: httpbin
+      values: |
+        service:
+          type: NodePort
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: default
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+```
 
 14. Save the file.
 
 15. Create a merge request by running the following commands:
 
-    ```bash
-    git checkout -b feature/httpbin-service-type
-    git add httpbin.yaml
-    git checkout -m "Changes the HTTPbin service type to NodePort"
-    git push --set-upstream origin feature/httpbin-service-type
-    ```
+```bash
+git checkout -b feature/httpbin-service-type
+git add httpbin.yaml
+git checkout -m "Changes the HTTPbin service type to NodePort"
+git push --set-upstream origin feature/httpbin-service-type
+```
 
 16. Copy the link from the output and paste it in a new browser tab. Create, approve, and merge the MR.
 
@@ -150,14 +150,14 @@
 
 23. Go inside the directory and change the values file as follows:
 
-    ```yaml
-    # values.yaml
-    image:
-      repository: httpd
-      pullPolicy: IfNotPresent
-      # Overrides the image tag whose default is the chart appVersion.
-      tag: latest
-    ```
+```yaml
+# values.yaml
+image:
+  repository: httpd
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: latest
+```
 
 24. Check the version of the chart in the Chart.yaml file.
 
@@ -195,28 +195,28 @@
 
 31. Create a new application in the argocd directory called `busybox.yaml` and add the following content:
 
-    ```yaml
-    apiVersion: argoproj.io/v1alpha1
-    kind: Application
-    metadata:
-      name: httpd
-      namespace: argocd
-    spec:
-      project: default
-      source:
-        chart: httpd
-        repoURL: https://gitlab.com/api/v4/projects/[project id]/packages/helm/stable
-        targetRevision: 0.1.0
-        helm:
-          releaseName: httpd
-      destination:
-        server: 'https://kubernetes.default.svc'
-        namespace: default
-      syncPolicy:
-        automated:
-          selfHeal: true
-          prune: true
-    ```
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: httpd
+  namespace: argocd
+spec:
+  project: default
+  source:
+    chart: httpd
+    repoURL: https://gitlab.com/api/v4/projects/[project id]/packages/helm/stable
+    targetRevision: 0.1.0
+    helm:
+      releaseName: httpd
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: default
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+```
 
 32. Push the changes to Gitlab
 
@@ -244,32 +244,32 @@
 
 37. Change the `nginx.yaml` manifest to look as follows:
 
-    ```yaml
-    apiVersion: argoproj.io/v1alpha1
-    kind: Application
-    metadata:
-      name: nginx
-      namespace: argocd
-    spec:
-      project: default
-      source:
-        repoURL: 'https://gitlab.com/[your username]/samplegitopsapp.git'
-        path: mychart # changed
-        targetRevision: main
-        # Add this
-        helm:
-          releaseName: nginx
-          values: |
-            replicaCount: 2
-        # till here
-      destination:
-        server: 'https://kubernetes.default.svc'
-        namespace: default
-      syncPolicy:
-        automated:
-          selfHeal: true
-          prune: true
-    ```
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nginx
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://gitlab.com/[your username]/samplegitopsapp.git'
+    path: mychart # changed
+    targetRevision: main
+    # Add this
+    helm:
+      releaseName: nginx
+      values: |
+        replicaCount: 2
+    # till here
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: default
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+```
 
 38. Push the change to Gitlab:
 
