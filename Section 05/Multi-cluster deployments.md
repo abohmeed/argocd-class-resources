@@ -1,7 +1,7 @@
 ### This lab assumes that you have two other Kubernetes clusters on two different machines + a load balancer on a third one. 
 ### Please repalce the IP addresses as appropriate
 
-2. The `cluster.yaml` for the clusters should look something like this (so that the API server is reachable from outside the cluster):
+The `cluster.yaml` for the clusters should look something like this (so that the API server is reachable from outside the cluster):
 
    ```yaml
    kind: Cluster
@@ -26,13 +26,13 @@
        protocol: TCP
    ```
 
-3. Create a new directory inside `myapp` :
+Create a new directory inside `myapp` :
 
    ````bash
    mkdir onepageapp
    ````
 
-4. Create a new file inside the directory called `workload.yaml` and add the following:
+Create a new file inside the directory called `workload.yaml` and add the following:
 
    ```yaml
    apiVersion: v1
@@ -119,9 +119,9 @@
                  number: 80
    ```
 
-5. Save the file.
+Save the file.
 
-6. Login to Argo CD using the command line as follows:
+Login to Argo CD using the command line as follows:
 
    ```bash
    argocd login --insecure
@@ -129,14 +129,14 @@
    #password: your password
    ```
 
-7. Add the primary and secondary clusters using their kubeconfig files as follows:
+Add the primary and secondary clusters using their kubeconfig files as follows:
 
    ```bash
    argocd cluster add kind-primary --name primary --kubeconfig ./primary
    argocd cluster add kind-secondary --name secondary --kubeconfig ./secondary
    ```
 
-8. In the `argocd` directory, we create a new file called `onepageserver-primary.yaml` with the following contents:
+In the `argocd` directory, we create a new file called `onepageserver-primary.yaml` with the following contents:
 
    ```yaml
    apiVersion: argoproj.io/v1alpha1
@@ -159,7 +159,7 @@
          prune: true
    ```
 
-9. We duplicate the file `cp onepageserver-primary.yaml onepageserver-secondary.yaml`:
+We duplicate the file `cp onepageserver-primary.yaml onepageserver-secondary.yaml`:
 
    ```yaml
    apiVersion: argoproj.io/v1alpha1
@@ -182,7 +182,7 @@
          prune: true
    ```
 
-10. Push the changes to the remote repository:
+Push the changes to the remote repository:
 
     ```bash
     git add -A
@@ -190,6 +190,6 @@
     git push
     ```
 
-11. Go to the UI of Argo CD and refresh the `argocd` application.
+Go to the UI of Argo CD and refresh the `argocd` application.
 
-12. Go to each server and view the page including the load balancer: 192.168.2.35, 192.168.2.36, 192.168.2.37.
+Go to each server and view the page including the load balancer: 192.168.2.35, 192.168.2.36, 192.168.2.37.
