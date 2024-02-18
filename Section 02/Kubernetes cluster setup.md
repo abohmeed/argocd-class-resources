@@ -1,0 +1,77 @@
+* Install Docker by running the following commands:
+
+  ```bash
+  sudo apt-get update
+  sudo apt-get install -y apt-transport-https ca-certificates curl gnupg-agent software-properties-common
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+  sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+  sudo apt-get update
+  sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+  sudo usermod -aG docker ${USER}
+  newgrp docker
+  docker version
+  ```
+
+* Navigate to https://www.docker.com/products/docker-desktop/ and show that you can install Docker Desktop for Windows or macOS.
+
+* Install `kubectl` by runnig the following command:
+
+  ```bash
+  curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+  sudo mv kubectl /usr/local/bin
+  sudo chmod +x /usr/local/bin/kubectl
+  kubectl version --client
+  ```
+
+* Go to https://github.com/kubernetes-sigs/kind/releases
+
+* Scroll down till you find the downloadable files.
+
+* Right click on the Linux AMD64 and copy the link.
+
+* In the terminal, run the following:
+
+  ```bash
+  wget https://github.com/kubernetes-sigs/kind/releases/download/v0.18.0/kind-linux-amd64
+  sudo mv kind-linux-amd64 /usr/local/bin/kind
+  sudo chmod +x /usr/local/bin/kind
+  kind version
+  kind create cluster # don't run this command yet
+  ```
+
+* Create a cluster configuration file as follows:
+
+  ```yaml
+  # cluster.yaml
+  kind: Cluster
+  apiVersion: kind.x-k8s.io/v1alpha4
+  nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+    - |
+      kind: InitConfiguration
+      nodeRegistration:
+        kubeletExtraArgs:
+          node-labels: "ingress-ready=true"
+    extraPortMappings:
+    - containerPort: 80
+      hostPort: 80
+      protocol: TCP
+    - containerPort: 443
+      hostPort: 443
+      protocol: TCP
+  ```
+
+* Create a cluster by running the following command:
+
+  ```bash
+  kind create cluster --config=cluster.yaml
+  kubectl cluster-info --context kind-kind
+  ```
+
+* Run the following commands to deploy an ingress controller:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s
+```
