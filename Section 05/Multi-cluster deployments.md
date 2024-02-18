@@ -1,4 +1,4 @@
-### This lab assumes that you have two other Kubernetes clusters on two different machines + a load balancer on a third one. Please repalce the IP addresses as appropriate
+### This lab assumes that you have two other Kubernetes clusters on two different machines + a load balancer on a third one. Please replace the IP addresses as appropriate
 
 The `cluster.yaml` for the clusters should look something like this (so that the API server is reachable from outside the cluster):
 
