@@ -61,7 +61,7 @@
 8. Create and push a merge request:
 
    ```bash
-   gco -b feature/add-httpbin-chart
+   git checkout -b feature/add-httpbin-chart
    git add httpbin.yaml
    git commit -m "Adds the HTTPbin chart"
    git push --set-upstream origin feature/add-httpbin-chart
