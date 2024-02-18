@@ -5,7 +5,7 @@
 cd myapp
 git remote add origin git@gitlab.com:[your username]/samplegitopsapp.git
 git push -u origin --all
-```bash
+```
 * Go back to Gitlab and refresh the page.
 * Click on the profile picture and select preferences. Select peronsl access tokens.
 * Create one called argo cd. The access level should be api .
