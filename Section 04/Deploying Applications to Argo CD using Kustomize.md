@@ -6,31 +6,31 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-    name: caddy-deployment
+  name: caddy-deployment
 spec:
-    replicas: 1
-    selector:
+  replicas: 1
+  selector:
     matchLabels:
-        app: caddy
-    template:
+      app: caddy
+  template:
     metadata:
-        labels:
+      labels:
         app: caddy
     spec:
-        containers:
-        - name: caddy
-        image: caddy:alpine
+      containers:
+      - image: caddy:alpine
+        name: caddy
         ports:
         - containerPort: 80
-            name: http
+          name: http
         volumeMounts:
-        - name: caddy-config
-            mountPath: /etc/caddy/
-            readOnly: true
-        volumes:
-        - name: caddy-config
+        - mountPath: /etc/caddy
+          name: caddy-config
+          readOnly: true
+      volumes:
+      - name: caddy-config
         configMap:
-            name: caddy-config
+          name: caddy-config
 ```
 
 3. Create `Caddyfile` with the following contents:
@@ -51,12 +51,12 @@ file_server
 apiVersion: v1
 kind: Service
 metadata:
-    name: caddy-service
+  name: caddy-service
 spec:
-    selector:
+  selector:
     app: caddy
-    ports:
-    - name: http
+  ports:
+  - name: http
     port: 80
 ```
 
@@ -66,20 +66,21 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  name: caddy-ingress
+  labels:
     name: caddy-ingress
 spec:
-    ingressClassName: nginx
-    rules:
-    - host: example.com
+  rules:
+  - host: redfox.local
     http:
-        paths:
-        - path: /
-        pathType: Prefix
+      paths:
+      - pathType: Prefix
+        path: "/"
         backend:
-            service:
+          service:
             name: caddy-service
-            port:
-                name: http
+            port: 
+              name: http
 ```
 
 6. Modify the `kustomization.yaml` file to look as follows:
@@ -109,21 +110,21 @@ namespace: default
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-    name: caddy-ingress
-    annotations:
+  name: caddy-ingress
+  annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
-    ingressClassName: nginx
-    rules:
-    - http:
-        paths:
-        - path: /caddy
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      - path: /caddy
         pathType: Prefix
         backend:
-            service:
+          service:
             name: caddy-service
             port:
-                name: http
+              name: http
 ```
 
 9. Modify the `kustomization.yaml` file to be as follows:
@@ -153,18 +154,18 @@ metadata:
     name: caddy
     namespace: argocd
 spec:
-    project: default
-    source:
+  project: default
+  source:
     repoURL: 'https://gitlab.com/[username]/samplegitopsapp.git'
     path: overlays
     targetRevision: main
-    destination:
+  destination:
     server: 'https://kubernetes.default.svc'
     namespace: default
-    syncPolicy:
+  syncPolicy:
     automated:
-        selfHeal: true
-        prune: true
+      selfHeal: true
+      prune: true
 ```
 
 11. Create a new branch, add, commit, and push:
