@@ -40,6 +40,33 @@
   helm upgrade argocd --set configs.params."server\.insecure"=true --set server.ingress.enabled=true  --set server.ingress.ingressClassName="nginx" -n argocd argo/argo-cd
   ```
 
+# Workaround: Argo's URL are not opening? 
+Edit default ingress and put your url name. 
+
+kubectl edit ingress argocd-server -n argocd
+
+line 25
+
+```
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: argocd.ex280.example.local # change me as you like to name your argo gui
+    http:
+      paths:
+      - backend:
+          service:
+            name: argocd-server
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+status:
+  loadBalancer:
+    ingress:
+    - hostname: localhost
+```
+
 * Get the password again just in case:
 
   ```bash
