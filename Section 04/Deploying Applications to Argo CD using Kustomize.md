@@ -6,31 +6,37 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-    name: caddy-deployment
+  name: caddy-deployment
+  namespace: default
+  labels:
+    app: caddy
 spec:
-    replicas: 1
-    selector:
+  replicas: 1
+  selector:
     matchLabels:
-        app: caddy
-    template:
+      app: caddy
+  template:
     metadata:
-        labels:
+      labels:
         app: caddy
     spec:
-        containers:
-        - name: caddy
-        image: caddy:alpine
-        ports:
-        - containerPort: 80
-            name: http
-        volumeMounts:
-        - name: caddy-config
-            mountPath: /etc/caddy/
-            readOnly: true
-        volumes:
-        - name: caddy-config
-        configMap:
+      containers:
+        - image: caddy:latest
+          name: caddy
+          ports:
+            - containerPort: 80
+              name: http
+          volumeMounts:
+            - mountPath: /etc/caddy/Caddyfile
+              name: caddy-config
+              subPath: Caddyfile
+      volumes:
+        - configMap:
             name: caddy-config
+            items:
+              - key: Caddyfile
+                path: Caddyfile
+          name: caddy-config
 ```
 
 3. Create `Caddyfile` with the following contents:
@@ -70,15 +76,15 @@ metadata:
 spec:
     ingressClassName: nginx
     rules:
-    - host: example.com
-    http:
+    - host: caddy.ex280.example.local # enter your desired DNS entry here using hosts or DNS external server.
+      http:
         paths:
         - path: /
-        pathType: Prefix
-        backend:
+          pathType: Prefix
+          backend:
             service:
-            name: caddy-service
-            port:
+              name: caddy-service
+              port:
                 name: http
 ```
 
