@@ -142,6 +142,20 @@ patches:
     target:
     kind: Ingress
     name: caddy-ingress
+
+
+## If you are pointing to host entry or local DNS server entry pointing to your PC
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- ../base
+namespace: default
+
+patchesStrategicMerge:
+  - ingress.yaml 
+
 ```
 
 10. Create a new Argo CD application in the `argo-cd` directory called `caddy.yaml` and add the following:
