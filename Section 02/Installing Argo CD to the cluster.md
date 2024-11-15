@@ -85,7 +85,7 @@ status:
 
   ```bash
   wget https://github.com/argoproj/argo-cd/releases/download/v2.6.7/argocd-linux-amd64
-  sudo mv argocd /usr/local/bin/argocd
+  sudo mv argocd-linux-amd64  /usr/local/bin/argocd
   chmod +x /usr/local/bin/argocd
   ```
 
