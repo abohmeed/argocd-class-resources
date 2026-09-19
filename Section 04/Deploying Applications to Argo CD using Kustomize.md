@@ -67,11 +67,10 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: caddy-ingress
-  labels:
-    name: caddy-ingress
 spec:
+  ingressClassName: nginx
   rules:
-  - host: redfox.local
+  - host: example.com
     http:
       paths:
       - pathType: Prefix
@@ -79,7 +78,7 @@ spec:
         backend:
           service:
             name: caddy-service
-            port: 
+            port:
               name: http
 ```
 
@@ -96,8 +95,8 @@ resources:
 
 configMapGenerator:
 - name: caddy-config
-    files:
-    - Caddyfile
+  files:
+  - Caddyfile
 
 namespace: default
 ```
@@ -140,7 +139,7 @@ namespace: default
 
 patches:
 - path: ingress.yaml
-    target:
+  target:
     kind: Ingress
     name: caddy-ingress
 ```

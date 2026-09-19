@@ -38,9 +38,9 @@ spec:
         server: 'https://kubernetes.default.svc'
         namespace: default
     syncPolicy:
-    automated:
-        selfHeal: true
-        prune: true
+        automated:
+            selfHeal: true
+            prune: true
 ```
 Apply the manifest to the cluster as follows:
 ```bash
