@@ -52,6 +52,38 @@ the reference you compare against, and the safety net if a take moves faster tha
 | `teams/_template/` | The canonical shape every tenant directory must match. **CI enforces it.** | S07 |
 | `test/` | The smoke suite. One script per lesson, generated from that lesson's runbook. | — |
 
+## The test suite, and what green actually means
+
+There is one script per demo lesson under `test/smoke/`, named for its lesson — `s04_l01.sh`.
+Each one defends that lesson's **claim**, not its commands: `s01_l04.sh` asserts the banner does
+*not* change after a ConfigMap edit, because that surprise is the lesson, and it goes red if Argo
+CD ever changes so the surprise stops happening. A script that merely re-ran the lesson's commands
+would pass in exactly the case you most need to catch.
+
+Each script declares a tier, and the runner reports a census rather than a verdict:
+
+```bash
+./test/smoke/run_all.sh repo      # needs only a checkout — runs on every PR
+./test/smoke/run_all.sh cluster   # needs k3s + Argo CD — nightly, and on manifest changes
+```
+
+| Tier | Needs | When it runs |
+|---|---|---|
+| `repo` | a checkout | every pull request |
+| `cluster` | k3s + Argo CD | nightly, and on any manifest change |
+| `external` | a browser, a second repository, a registry, or several VMs | **never in CI** |
+
+That last row is the one that matters. A handful of lessons genuinely cannot run in CI — they sign
+in through an identity provider, open a pull request, push to a registry, or build four Multipass
+VMs. Those scripts assert whatever *is* checkable from the repo and then **declare themselves**:
+they exit 78, print what they need and why, and the runner counts them in their own column. They
+never print a pass.
+
+That is deliberate. A script that quietly returns success because it decided not to do anything is
+indistinguishable from one that ran and passed, and a suite full of those reports a green wall
+while testing nothing. Here, green means *ran and passed*, and nothing else is allowed to look
+like it.
+
 ## Why there is no `postgres` Helm chart here
 
 Bitnami moved its free Helm chart repository to a paid model in 2025. Every demo in this course that

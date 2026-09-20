@@ -13,7 +13,11 @@ source "${REPO_ROOT}/test/versions.env"
 _pass() { printf '  \033[32mok\033[0m   %s\n' "$1"; }
 # %b, not %s: several call sites embed "\n<details>" to print captured output under the
 # headline. With %s those arrive as a literal backslash-n and the details run on one line.
-_fail() { printf '  \033[31mFAIL\033[0m %b\n' "$1" >&2; exit 1; }
+_fail() {
+  printf "  \033[31mFAIL\033[0m %b\n" "$1" >&2
+  argocd_cli_release 2>/dev/null || true
+  exit 1
+}
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 
@@ -55,9 +59,10 @@ assert_renders_kind() {
 
 # assert_no_forbidden_sources — the course-wide bans, enforced mechanically.
 #
-# These are not style preferences. Bitnami's free chart repo went paid in 2025 and ingress-nginx
-# was archived in March 2026; either one appearing in this repo means a student hits a wall the
-# course promised they would not.
+# These are not style preferences. Bitnami moved its versioned images to a paid catalogue in 2025 —
+# the charts still resolve, but `:16.4.0` is a 404 and only `:latest` is free, so a chart from there
+# cannot be pinned. ingress-nginx was archived in March 2026. Either one appearing in this repo
+# means a student hits a wall the course promised they would not.
 assert_no_forbidden_sources() {
   local hits
   hits="$(grep -rIl --exclude-dir=.git --exclude-dir=test \
@@ -180,5 +185,162 @@ assert_yaml_parses() {
     _fail "cannot check ${path}: no reachable API server (environment fault, not a defect in the file). This assertion needs a live cluster, because client dry-run still resolves kinds through discovery."
   else
     _fail "does not parse: ${path}\n${out}"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Per-lesson smoke scripts: identity, tier, and honest non-execution.
+#
+# Blueprint §8 wants one CI script per lesson, carrying that lesson's own commands, so the
+# companion repo cannot hold something different from what the lesson shows. Three facts make
+# that harder than it sounds, and these helpers exist for the third:
+#
+#   1. Some lessons need nothing but the repo (does the overlay build, is the templating legal).
+#   2. Some need a live cluster (does the sync actually reach Healthy).
+#   3. Some cannot run in CI AT ALL — they open a browser for SSO, raise a GitHub pull request,
+#      push to a registry, or build Multipass VMs.
+#
+# The danger is entirely in the third group. A script that quietly returns 0 because it decided
+# not to do anything is indistinguishable from one that passed, and a suite of those reports a
+# green wall while testing nothing. So a lesson in that group DECLARES itself, exits 78, and the
+# runner counts it in a separate column with its reason printed. Green means ran-and-passed, and
+# nothing else is allowed to look like it.
+# ---------------------------------------------------------------------------
+
+SMOKE_LESSON=""
+SMOKE_TIER=""
+
+# lesson <SNN-LMM> <one-line claim this script defends>
+lesson() {
+  SMOKE_LESSON="$1"; shift
+  printf '\033[1m%s\033[0m — %s\n' "${SMOKE_LESSON}" "$*"
+}
+
+# tier repo|cluster|external
+tier() {
+  case "$1" in
+    repo|cluster|external) SMOKE_TIER="$1" ;;
+    *) _fail "unknown tier '$1' (expected repo, cluster or external)" ;;
+  esac
+}
+
+# needs_external <what it needs> <why CI cannot provide it>
+# Terminates the script with 78. NOT a pass, and it never prints one.
+needs_external() {
+  printf '  \033[33mDECLARED\033[0m %s needs %s — %s\n' "${SMOKE_LESSON:-this lesson}" "$1" "$2"
+  printf '  \033[33m         this script asserts the repo-side invariants only; the rest is a take-day check\033[0m\n'
+  exit 78
+}
+
+# smoke_done — the only thing allowed to print a pass line.
+smoke_done() {
+  argocd_cli_release 2>/dev/null || true
+  printf '\n\033[32m%s passed\033[0m\n' "${SMOKE_LESSON:-smoke}"
+}
+
+# assert_exists_dir <path> / assert_exists_file <path> — repo-tier building blocks.
+# A lesson that syncs a path the repo does not hold fails on camera; these are the cheapest
+# possible guard against that, and they run without a cluster.
+assert_exists_dir() {
+  [ -d "${REPO_ROOT}/$1" ] && _pass "directory present: $1" \
+    || _fail "directory MISSING: $1 — a lesson names it, so either the lesson or the repo is wrong"
+}
+
+assert_exists_file() {
+  [ -f "${REPO_ROOT}/$1" ] && _pass "file present: $1" \
+    || _fail "file MISSING: $1 — a lesson names it, so either the lesson or the repo is wrong"
+}
+
+# assert_file_contains <path> <extended-regex> <what it means>
+assert_file_contains() {
+  if grep -qE "$2" "${REPO_ROOT}/$1" 2>/dev/null; then
+    _pass "$3"
+  else
+    _fail "$1 does not match /$2/ — $3"
+  fi
+}
+
+# assert_file_lacks <path> <extended-regex> <why it must not be there>
+assert_file_lacks() {
+  if grep -qE "$2" "${REPO_ROOT}/$1" 2>/dev/null; then
+    _fail "$1 contains /$2/ — $3"
+  else
+    _pass "$3"
+  fi
+}
+
+# assert_yaml_wellformed <path> — REPO TIER. Is this valid YAML at all?
+#
+# Deliberately weaker than assert_yaml_parses, and usable without a cluster. `kubectl apply
+# --dry-run=client` is NOT an offline parse: it resolves kinds through the API server's discovery
+# endpoint, so it cannot judge a CRD-backed manifest on a machine with no cluster. This answers
+# the smaller question — does it parse as YAML — which is the one a PR check can actually ask.
+#
+# If no YAML parser is on PATH this FAILS. It does not pass quietly: a check that cannot run must
+# say so, because "0 bad" from an instrument that never started is worse than no check at all.
+assert_yaml_wellformed() {
+  local path="$1" f="${REPO_ROOT}/$1"
+  [ -f "$f" ] || { _fail "file MISSING: ${path}"; return; }
+  if command -v ruby >/dev/null 2>&1; then
+    if ruby -ryaml -e 'YAML.load_stream(File.read(ARGV[0]))' "$f" >/dev/null 2>&1; then
+      _pass "valid YAML: ${path}"
+    else
+      _fail "INVALID YAML: ${path} — $(ruby -ryaml -e 'begin; YAML.load_stream(File.read(ARGV[0])); rescue => e; print e.message.lines.first.to_s.strip; end' "$f" 2>/dev/null)"
+    fi
+  else
+    _fail "cannot check ${path}: no YAML parser on PATH (environment fault, not a defect in the file)"
+  fi
+}
+
+# argocd_cli_ready — make the `argocd` CLI usable, or fail saying exactly what is missing.
+#
+# Many cluster-tier scripts drive the CLI rather than kubectl, because the thing they are proving
+# lives in Argo CD's own API layer (RBAC, projects, sync windows) and is invisible from the
+# Kubernetes side. On a bare CI cluster there is no gateway and no session, so the CLI dies with
+# `Argo CD server address unspecified` — a raw fatal that reads like a broken script rather than
+# an unconfigured environment. This does the port-forward and the login once, and says plainly
+# which of the two failed if it cannot.
+#
+# Sets ARGOCD_OPTS so every later `argocd` call in the script inherits the session.
+# argocd_cli_ready — make the `argocd` CLI usable without a server, a session, or a port-forward.
+#
+# Many cluster-tier scripts drive the CLI rather than kubectl, because what they are proving lives
+# in Argo CD's own API layer (projects, sync windows, refresh semantics) and is invisible from the
+# Kubernetes side. On a bare CI cluster there is no ingress and no login, and the CLI dies with
+# `Argo CD server address unspecified` — a raw fatal that reads like a broken script rather than an
+# unconfigured environment.
+#
+# `--core` is the way out: the CLI talks straight to the Kubernetes API using the kubeconfig
+# already in hand, with no argocd-server session at all. It resolves `argocd-cm` through the
+# CURRENT KUBE CONTEXT'S NAMESPACE, not $ARGOCD_NAMESPACE — so the namespace is switched here and
+# restored on the way out. An earlier version of this port-forwarded and logged in with the
+# bootstrap admin password; it was fragile (the forward did not survive a non-interactive shell,
+# and `localhost` resolved to ::1 where nothing was listening) and it is unnecessary.
+ARGOCD_PREV_NS=""
+argocd_cli_ready() {
+  command -v argocd >/dev/null 2>&1 \
+    || { _fail "argocd CLI is not on PATH (environment fault, not a defect in the lesson)"; return 1; }
+  command -v kubectl >/dev/null 2>&1 \
+    || { _fail "kubectl is not on PATH (environment fault, not a defect in the lesson)"; return 1; }
+
+  ARGOCD_PREV_NS="$(kubectl config view --minify -o jsonpath='{..namespace}' 2>/dev/null || true)"
+  kubectl config set-context --current --namespace=argocd >/dev/null 2>&1 \
+    || { _fail "could not point the kube context at the argocd namespace (environment fault)"; return 1; }
+
+  export ARGOCD_OPTS="--core"
+  if argocd --core app list >/dev/null 2>&1; then
+    _pass "argocd CLI ready in --core mode (no server session needed)"
+    return 0
+  fi
+  _fail "argocd --core cannot reach Argo CD in this cluster (environment fault, not a defect in the lesson)"
+  return 1
+}
+
+# argocd_cli_release — put the kube context back. Called by _fail and smoke_done, so a script
+# never has to remember, and so this cannot clobber the script's own `trap cleanup EXIT`.
+argocd_cli_release() {
+  if [ -n "${ARGOCD_PREV_NS:-}" ]; then
+    kubectl config set-context --current --namespace="${ARGOCD_PREV_NS}" >/dev/null 2>&1 || true
+    ARGOCD_PREV_NS=""
   fi
 }

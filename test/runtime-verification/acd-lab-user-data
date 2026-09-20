@@ -1,0 +1,33 @@
+#cloud-config
+hostname: acd-lab
+fqdn: acd-lab.lab.local
+package_update: true
+package_upgrade: false
+
+ssh_authorized_keys:
+  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIML87Dr0Km+7XH0eDWTRo43fmHuIJa5nASHFVPTt4NjN claude-code@pcf 2026-08-30
+
+users:
+  - name: ubuntu
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIML87Dr0Km+7XH0eDWTRo43fmHuIJa5nASHFVPTt4NjN claude-code@pcf 2026-08-30
+
+write_files:
+  - path: /etc/hosts
+    content: |
+      127.0.0.1 localhost
+      ::1 localhost
+      192.168.126.245 acd-lab.lab.local acd-lab argocd.local
+
+packages:
+  - curl
+  - jq
+  - git
+
+runcmd:
+  - [ bash, -lc, "curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.37.0+k3s1 sh - > /var/log/k3s-install.log 2>&1" ]
+  - [ bash, -lc, "mkdir -p /home/ubuntu/.kube && cp /etc/rancher/k3s/k3s.yaml /home/ubuntu/.kube/config && chown -R ubuntu:ubuntu /home/ubuntu/.kube && chmod 600 /home/ubuntu/.kube/config" ]
+  - [ bash, -lc, "echo 'export KUBECONFIG=/home/ubuntu/.kube/config' >> /home/ubuntu/.bashrc" ]
+  - [ bash, -lc, "touch /var/lib/cloud-init-done" ]

@@ -30,6 +30,10 @@ jobs:
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
       - run: ./test/smoke/lint_repo.sh
+      # The per-lesson repo tier: every lesson whose claim can be checked from a checkout alone.
+      # Cheap enough to run on every PR, which is the point — this is the tier that catches a
+      # manifest moving out from under a lesson.
+      - run: ./test/smoke/run_all.sh repo
 
   cluster:
     name: cluster suite (argocd ${{ matrix.argocd }})
@@ -65,6 +69,12 @@ jobs:
 
       - run: ./test/smoke/s02_control_plane.sh
       - run: ./test/smoke/s01_northwind.sh
+
+      # The per-lesson cluster tier. Scripts that need a live Argo CD run here; scripts that need
+      # a browser, a second repository, a registry or four VMs declare themselves and are counted
+      # in their own column rather than returning a green they did not earn.
+      - name: Per-lesson smoke suite (repo + cluster tiers)
+        run: ./test/smoke/run_all.sh cluster
 
       - name: Diagnostics on failure
         if: failure()
