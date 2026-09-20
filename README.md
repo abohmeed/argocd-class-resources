@@ -48,7 +48,6 @@ the reference you compare against, and the safety net if a take moves faster tha
 | `apps/storefront/` | The running example. An `http-echo` service whose banner text is served from an env var, so a change is visible in one frame. | S01 |
 | `apps/checkout/` | The second service, with a hand-rolled Postgres StatefulSet. Arrives when the course needs a second team and a real credential. | S07 |
 | `bootstrap/` | The self-management Application, and the app-of-apps root. | S02, S03 |
-| `platform/` | Cluster-wide pieces: secrets tooling, notifications, Rollouts. | S05, S10, S12 |
 | `applicationsets/` | Fleet generation. | S08 |
 | `teams/_template/` | The canonical shape every tenant directory must match. **CI enforces it.** | S07 |
 | `test/` | The smoke suite. One script per lesson, generated from that lesson's runbook. | — |

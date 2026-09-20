@@ -17,6 +17,22 @@ _fail() { printf '  \033[31mFAIL\033[0m %b\n' "$1" >&2; exit 1; }
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 
+# _require_dirs <dir>... — every directory a repo-wide scan claims to cover must exist.
+#
+# The scans below pipe grep through `|| true`, because grep exits 1 when it finds nothing and
+# "found nothing" is the passing case. That same `|| true` also swallows "No such file or
+# directory", so a scan over a directory that is not there reports ok having read nothing —
+# a green tick from a path that did no work. This was not hypothetical: `platform/` held only
+# empty subdirectories, git does not track those, and the first push produced a repo where
+# `assert_images_pinned` and `assert_no_plaintext_secrets` both passed while scanning a
+# directory that did not exist. Absence must fail loudly or the check is decoration.
+_require_dirs() {
+  local d
+  for d in "$@"; do
+    [ -d "${d}" ] || _fail "scan target is missing: ${d#"${REPO_ROOT}"/} — this check would otherwise pass by reading nothing"
+  done
+}
+
 # assert_kustomize_builds <path> — the overlay renders at all.
 assert_kustomize_builds() {
   local path="$1"
@@ -65,6 +81,7 @@ assert_no_legacy_appset_templating() {
   # "the legacy dot-less {{name}} form is a HARD PARSE ERROR" — and the first version
   # of this check matched its own explanatory comment and failed a correct file.
   # Naming a forbidden form in order to warn against it is not using it.
+  _require_dirs "${REPO_ROOT}/applicationsets"
   hits="$(grep -rIn --exclude-dir=.git --include='*.yaml' -E '\{\{[a-zA-Z_]' "${REPO_ROOT}/applicationsets" 2>/dev/null \
           | grep -vE '^[^:]+:[0-9]+: *#' || true)"
   if [ -z "${hits}" ]; then
@@ -77,8 +94,9 @@ assert_no_legacy_appset_templating() {
 # assert_images_pinned — no :latest, and no untagged images. A demo that floats is a demo that rots.
 assert_images_pinned() {
   local hits
+  _require_dirs "${REPO_ROOT}/apps"
   hits="$(grep -rIn --exclude-dir=.git --include='*.yaml' -E 'image: .*:latest|image: [^:]+$' \
-    "${REPO_ROOT}/apps" "${REPO_ROOT}/platform" 2>/dev/null || true)"
+    "${REPO_ROOT}/apps" 2>/dev/null || true)"
   if [ -z "${hits}" ]; then
     _pass "every image is pinned to an explicit tag"
   else
@@ -90,8 +108,9 @@ assert_images_pinned() {
 # S05 L01 opens on. It must never be in the repo outside the one lesson that demonstrates it.
 assert_no_plaintext_secrets() {
   local hits
+  _require_dirs "${REPO_ROOT}/apps" "${REPO_ROOT}/teams"
   hits="$(grep -rIl --exclude-dir=.git --include='*.yaml' -e '^kind: Secret$' \
-    "${REPO_ROOT}/apps" "${REPO_ROOT}/platform" "${REPO_ROOT}/teams" 2>/dev/null || true)"
+    "${REPO_ROOT}/apps" "${REPO_ROOT}/teams" 2>/dev/null || true)"
   if [ -z "${hits}" ]; then
     _pass "no plaintext Secret manifests committed"
   else
