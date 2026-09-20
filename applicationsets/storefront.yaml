@@ -1,0 +1,59 @@
+# S08 L12 — templatePatch: express a per-target exception without forking the template.
+#
+# Base: a Cluster generator, one Application per registered cluster (the hub is excluded because
+# it has no `argocd.argoproj.io/secret-type` Secret to match the selector against).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: storefront
+  namespace: argocd
+spec:
+  # Modern templating. The legacy dot-less {{name}} form is a HARD PARSE ERROR on 3.5.
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            argocd.argoproj.io/secret-type: cluster
+  template:
+    metadata:
+      name: '{{ .name }}-storefront'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/abohmeed/argocd-class-resources.git
+        targetRevision: main
+        path: 'apps/storefront/overlays/{{ .metadata.labels.env }}'
+      destination:
+        server: '{{ .server }}'
+        namespace: 'storefront-{{ .metadata.labels.env }}'
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+  # templatePatch only touches the manifest AFTER it renders — it has no say over which entries
+  # the generator produces. It works because goTemplate: true is set above, and it merges as a
+  # Kubernetes strategic merge patch, not a JSON Patch. The match stays exact (`eq`, not
+  # `contains`): a loose match catches targets it was never meant to.
+  #
+  # The edge exception moves that ONE entry into a different AppProject.
+  #
+  # A sync window is NOT a field on an Application. It lives on the AppProject, under
+  # `spec.syncWindows`, and an Application inherits it by belonging to that project. The first
+  # draft of this file put `SyncWindow=restricted-edge` under `spec.syncPolicy.syncOptions`,
+  # following the narration literally — and it was verified on a live cluster that Argo CD
+  # accepts ANY string there: `ThisIsCompleteNonsense=yes` was admitted without complaint,
+  # because syncOptions is a plain []string. The demo would have looked correct on camera and
+  # done nothing at all. See bootstrap/edge-restricted-project.yaml for the window itself.
+  templatePatch: |
+    {{ if eq .name "edge" }}
+    metadata:
+      annotations:
+        monitoring.northwind.io/tier: edge
+    spec:
+      project: edge-restricted
+    {{ end }}

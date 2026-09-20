@@ -1,0 +1,29 @@
+# S14 L02 — fencing the checkout team.
+#
+# Copied from teams/_template/appproject.yaml and scoped to checkout: sourceRepos and
+# destinations are a default-deny pair, so nothing outside either list is even considered,
+# not filtered after the fact. Applied with:
+#   kubectl apply -f teams/checkout/appproject.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: checkout
+  namespace: argocd
+spec:
+  description: "checkout team — one repository, checkout's own namespaces, no cluster-scoped resources."
+  sourceRepos:
+    - https://github.com/abohmeed/argocd-class-resources.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      # apps/checkout/overlays/{dev,staging,prod} land in checkout-dev, checkout-staging and
+      # checkout-prod — never storefront's, or argocd's own, namespace.
+      namespace: checkout-*
+  # Empty on day one: a team's onboarding namespace has no business creating cluster-scoped
+  # objects yet. Whitelist only what checkout genuinely needs, one kind at a time, with a
+  # reason in the pull request.
+  clusterResourceWhitelist: []
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange

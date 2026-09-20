@@ -1,0 +1,50 @@
+# S08 L12 — the AppProject that carries the edge site's narrower sync window.
+#
+# This file exists because of where Argo CD actually reads a sync window from. `syncWindows` is
+# an AppProject field (`kubectl explain appproject.spec.syncWindows` -> `<[]Object>`); there is
+# no equivalent on an Application. An Application inherits a window by BELONGING to a project
+# that has one, which is why S08 L12's templatePatch sets `spec.project` rather than trying to
+# set a window inline.
+#
+# Worth knowing why that matters: an Application's `spec.syncPolicy.syncOptions` is a plain
+# []string, so Argo CD accepts anything written there. Verified on a live cluster — an
+# Application carrying `ThisIsCompleteNonsense=yes` was admitted without a murmur. A bogus
+# sync-window entry would therefore render perfectly in `kubectl get application -o yaml` and
+# have no effect whatsoever.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: edge-restricted
+  namespace: argocd
+spec:
+  description: >-
+    storefront on the edge cluster. Identical permissions to the fleet's default project,
+    but automated sync is confined to an overnight window agreed with the ops team.
+  sourceRepos:
+    - https://github.com/abohmeed/argocd-class-resources.git
+  destinations:
+    - server: '*'
+      namespace: 'storefront-*'
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  syncWindows:
+    # Deny by default, then allow one nightly window. Order does not matter: a deny window
+    # always beats an allow window that overlaps it, so the pair below reads as
+    # "never, except 02:00-04:00 UTC".
+    - kind: deny
+      schedule: '* * * * *'
+      duration: 24h
+      applications:
+        - '*-storefront'
+      manualSync: true
+    - kind: allow
+      # Standard 5-field cron. This is the window's START; `duration` sets how long it stays open.
+      schedule: '0 2 * * *'
+      duration: 2h
+      applications:
+        - '*-storefront'
+      # manualSync lets a human still sync deliberately during a deny window — the escape hatch
+      # that stops a restrictive window from blocking an incident fix.
+      manualSync: true

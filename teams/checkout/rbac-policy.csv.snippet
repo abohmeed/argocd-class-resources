@@ -1,0 +1,24 @@
+# S14 L02 — the p/g lines checkout contributes to argocd-rbac-cm's policy.csv
+# (S07 L06 grammar: p, <subject>, <resource>, <action>, <object>, <effect>).
+#
+# Not applied by anything in this repo yet — S14 L02 edits argocd-rbac-cm directly, by
+# hand, the way this platform has always shipped it:
+#   kubectl apply -f argocd-rbac-cm.yaml
+# This file records the same lines as this team's own source of truth for that edit,
+# ahead of the S14 L03 generator that reads every teams/<name>/ directory.
+
+# checkout-lead: sync, update and delete on the checkout project's Applications.
+p, role:checkout-lead, applications, sync, checkout/*, allow
+p, role:checkout-lead, applications, update, checkout/*, allow
+p, role:checkout-lead, applications, delete, checkout/*, allow
+
+# Since Argo CD 3.0, logs are their own RBAC-enforced resource, denied by default — no
+# amount of applications update/delete grants it. checkout/* scopes the grant to every
+# Application under the checkout project and nothing outside it.
+p, role:checkout-lead, logs, get, checkout/*, allow
+
+# Keyed on federated_claims.user_id from the decoded Argo CD ID token, not the opaque
+# `sub` value Argo CD resolved against before the 3.0 upgrade. REPLACE_WITH_FEDERATED_CLAIMS_USER_ID is a
+# placeholder — decode your own token and substitute the real federated_claims.user_id
+# before applying; committing a real value here would be committing an identity, not policy.
+g, REPLACE_WITH_FEDERATED_CLAIMS_USER_ID, role:checkout-lead

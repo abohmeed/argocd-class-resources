@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: search-dev
+resources:
+  - ../../base
+images:
+  - name: hashicorp/http-echo
+    newTag: "1.0"
+replicas:
+  - name: search
+    count: 1
+configMapGenerator:
+  - name: search-banner
+    behavior: merge
+    literals:
+      - banner=search v1 — dev

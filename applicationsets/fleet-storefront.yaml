@@ -1,0 +1,41 @@
+# S09 L07 — the Cluster generator against a real fleet: dev (the hub), staging, prod-us.
+#
+# Note what is NOT here: any exclusion of the Argo CD host cluster. None is needed.
+# The built-in `in-cluster` destination is synthesised in memory and has no Secret, so it carries
+# no `argocd.argoproj.io/secret-type` label — and a selector matching that label excludes it
+# automatically. That is documented behaviour, not a trick.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: fleet-storefront
+  namespace: argocd
+spec:
+  # Modern templating. Without this, {{.name}} is not how you address a parameter — and the
+  # legacy dot-less {{name}} form is a HARD PARSE ERROR on 3.5, not a silent misrender.
+  goTemplate: true
+  goTemplateOptions:
+    # Default behaviour is to ignore a missing key SILENTLY. This turns a typo into a loud failure.
+    - missingkey=error
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            argocd.argoproj.io/secret-type: cluster
+  template:
+    metadata:
+      name: 'storefront-{{ .name }}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/abohmeed/argocd-class-resources.git
+        targetRevision: main
+        path: 'apps/storefront/overlays/{{ .metadata.labels.tier }}'
+      destination:
+        server: '{{ .server }}'
+        namespace: 'storefront-{{ .metadata.labels.tier }}'
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true

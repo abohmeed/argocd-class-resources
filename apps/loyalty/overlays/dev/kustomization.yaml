@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: loyalty-dev
+resources:
+  - ../../base
+images:
+  - name: hashicorp/http-echo
+    newTag: "1.0"
+replicas:
+  - name: loyalty
+    count: 1
+configMapGenerator:
+  - name: loyalty-banner
+    behavior: merge
+    literals:
+      - banner=loyalty v1 — dev

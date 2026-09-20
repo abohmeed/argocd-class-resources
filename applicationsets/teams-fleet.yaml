@@ -1,0 +1,53 @@
+# S14 L03 — Matrix: a Git generator in directory mode (teams/*) crossed with the Cluster
+# generator, so every onboarded team gets an Application on every ready cluster with zero
+# hand-written YAML. A new team is a directory and a pull request under teams/, not a ticket.
+#
+# The generator is scoped to the fleet's ready tier — the same secret-type/tier idiom the fleet
+# section already uses to keep the Argo CD host cluster, and any cluster not yet marked ready,
+# out of the Matrix. Widening that selector multiplies every entry this ApplicationSet produces.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: teams-fleet
+  namespace: argocd
+spec:
+  # Modern templating, addressed with a dot everywhere: {{ .git.path.basename }}, {{ .cluster.name }}.
+  # The legacy dot-less {{name}} form is a HARD PARSE ERROR on 3.5 — a trap easy to paste in from
+  # an older manifest, and it fails just as loudly here as anywhere else in this course.
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+  generators:
+    - matrix:
+        generators:
+          - git:
+              repoURL: https://github.com/abohmeed/argocd-class-resources.git
+              revision: main
+              pathParamPrefix: git
+              directories:
+                - path: teams/*
+                - path: teams/_template
+                  exclude: true
+          - clusters:
+              selector:
+                matchLabels:
+                  argocd.argoproj.io/secret-type: cluster
+                  tier: staging
+  template:
+    metadata:
+      name: 'team-{{ .git.path.basename }}-{{ .cluster.name }}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/abohmeed/argocd-class-resources.git
+        targetRevision: main
+        path: 'apps/{{ .git.path.basename }}/overlays/{{ .cluster.metadata.labels.tier }}'
+      destination:
+        server: '{{ .cluster.server }}'
+        namespace: '{{ .git.path.basename }}-{{ .cluster.metadata.labels.tier }}'
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true

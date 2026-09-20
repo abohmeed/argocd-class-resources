@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: payments-dev
+resources:
+  - ../../base
+images:
+  - name: hashicorp/http-echo
+    newTag: "1.0"
+replicas:
+  - name: payments
+    count: 1
+configMapGenerator:
+  - name: payments-banner
+    behavior: merge
+    literals:
+      - banner=payments v1 — dev
