@@ -27,7 +27,7 @@ spec:
     spec:
       project: default
       source:
-        repoURL: https://github.com/abohmeed/argocd-course-lab.git
+        repoURL: https://github.com/abohmeed/argocd-class-resources.git
         targetRevision: main
         path: 'apps/storefront/overlays/{{.metadata.labels.env}}'
       destination:

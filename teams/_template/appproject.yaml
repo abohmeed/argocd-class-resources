@@ -6,7 +6,7 @@ metadata:
 spec:
   description: "Template — copy this directory, do not edit it in place."
   sourceRepos:
-    - https://github.com/abohmeed/argocd-course-lab.git
+    - https://github.com/abohmeed/argocd-class-resources.git
   destinations:
     - server: https://kubernetes.default.svc
       namespace: TEMPLATE-*

@@ -11,7 +11,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/abohmeed/argocd-course-lab.git
+    repoURL: https://github.com/abohmeed/argocd-class-resources.git
     targetRevision: main
     # `bootstrap`, matching what S02 L08 says aloud. The student commits Argo CD's
     # own pinned install manifest into this directory during that lesson; the
