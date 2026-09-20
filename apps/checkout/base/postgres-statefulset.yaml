@@ -1,0 +1,67 @@
+# Hand-rolled Postgres, on the OFFICIAL image.
+#
+# Deliberately NOT a Helm chart. Bitnami moved its free chart repository to a paid model in 2025,
+# which broke the database demos in the 2023 version of this course. A StatefulSet you can read
+# top to bottom will still work in three years, and it satisfies this course's build-from-empty
+# rule better than any chart could.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: checkout-postgres
+  labels:
+    app.kubernetes.io/name: checkout-postgres
+  annotations:
+    # S06 L02: the API must not start before the database is ready. Wave -1 runs first, and
+    # wave 0 waits for this to be Synced AND Healthy — not merely created.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  serviceName: checkout-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: checkout-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: checkout-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:18.6
+          env:
+            - name: POSTGRES_DB
+              value: checkout
+            - name: POSTGRES_USER
+              value: checkout
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: checkout-db
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "checkout", "-d", "checkout"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

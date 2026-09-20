@@ -1,0 +1,83 @@
+name: smoke
+
+# The discipline, in one file.
+#
+# 1. Repo lint runs on EVERY pull request. Nobody can approve on read-through alone.
+# 2. The cluster suite runs on every PR that touches manifests, on a cluster built from nothing.
+# 3. The same suite runs NIGHTLY whether or not anyone touched the repo, so rot from outside it
+#    — a point release, a vanished registry, a newly-hit CRD limit — is caught by the pipeline
+#    rather than by a student.
+# 4. It runs across EVERY supported Argo CD minor, so a future release that breaks a lesson
+#    fails here first.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *"   # nightly, whether or not anything changed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: repo invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+      - run: ./test/smoke/lint_repo.sh
+
+  cluster:
+    name: cluster suite (argocd ${{ matrix.argocd }})
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The support window is the latest three minors. If a lesson only works on one of them,
+        # that is a fact the course must state on screen — so it is a fact CI has to surface.
+        argocd: ["v3.3", "v3.4", "v3.5"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install k3s (a cluster built from nothing, every run)
+        run: |
+          curl -sfL https://get.k3s.io | sh -
+          sudo chmod 0644 /etc/rancher/k3s/k3s.yaml
+          echo "KUBECONFIG=/etc/rancher/k3s/k3s.yaml" >> "$GITHUB_ENV"
+
+      - name: Wait for the node
+        run: kubectl wait --for=condition=Ready node --all --timeout=180s
+
+      - name: Resolve the newest patch of ${{ matrix.argocd }}
+        run: |
+          set -euo pipefail
+          tag="$(git ls-remote --tags --refs https://github.com/argoproj/argo-cd.git \
+                 | awk -F/ '{print $NF}' | grep -E "^${{ matrix.argocd }}\.[0-9]+$" \
+                 | sort -V | tail -1)"
+          test -n "$tag" || { echo "no release found for ${{ matrix.argocd }}"; exit 1; }
+          echo "Resolved ${{ matrix.argocd }} -> $tag"
+          sed -i "s|^ARGOCD_PIN=.*|ARGOCD_PIN=\"$tag\"|" test/versions.env
+
+      - run: ./test/smoke/s02_control_plane.sh
+      - run: ./test/smoke/s01_northwind.sh
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get pods -A || true
+          kubectl -n argocd logs deploy/argocd-repo-server --tail=100 || true
+          kubectl -n argocd logs statefulset/argocd-application-controller --tail=100 || true
+
+  runbook-drift:
+    name: runbook / test drift
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every command a lesson shows must exist in that lesson's smoke script
+        run: ./test/check_runbook_drift.sh

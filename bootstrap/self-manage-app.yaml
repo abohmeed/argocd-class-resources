@@ -1,0 +1,32 @@
+# S02 L08 — Argo CD under its own management.
+#
+# The control plane stops being an exception to the system it enforces on everyone else.
+# Keep a manual break-glass path: if this Application ever breaks Argo CD's ability to fix itself,
+# you reapply the install manifest by hand with --server-side --force-conflicts.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/abohmeed/argocd-course-lab.git
+    targetRevision: main
+    # `bootstrap`, matching what S02 L08 says aloud. The student commits Argo CD's
+    # own pinned install manifest into this directory during that lesson; the
+    # Application then reconciles the control plane from it.
+    path: bootstrap
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      selfHeal: true
+      # prune deliberately OFF for the control plane itself: an accidental deletion in Git
+      # should not take Argo CD down with it.
+      prune: false
+    syncOptions:
+      # Required from 3.3: the ApplicationSet CRD exceeds the 262144-byte
+      # last-applied-configuration annotation ceiling, so a client-side apply fails outright.
+      - ServerSideApply=true

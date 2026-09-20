@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: TEMPLATE
+  namespace: argocd
+spec:
+  description: "Template — copy this directory, do not edit it in place."
+  sourceRepos:
+    - https://github.com/abohmeed/argocd-course-lab.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: TEMPLATE-*
+  # Cluster-scoped resources are DENY BY DEFAULT. Whitelist only what the team genuinely needs,
+  # one kind at a time, with a reason in the pull request.
+  clusterResourceWhitelist: []
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange

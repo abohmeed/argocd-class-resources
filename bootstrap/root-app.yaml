@@ -1,0 +1,22 @@
+# S03 L09 — App of Apps.
+#
+# This is the composition pattern for MANY children. It is not the same thing as
+# bootstrap/self-manage-app.yaml, which puts Argo CD itself under GitOps (one Application).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/abohmeed/argocd-course-lab.git
+    targetRevision: main
+    path: bootstrap/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true

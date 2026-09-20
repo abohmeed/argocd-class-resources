@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: storefront-dev
+  namespace: argocd
+spec:
+  # Children are scoped to a project deliberately. An unscoped child inherits `default`,
+  # which S07 L01 shows is unrestricted — that is the accident this line prevents.
+  project: default
+  source:
+    repoURL: https://github.com/abohmeed/argocd-course-lab.git
+    targetRevision: main
+    path: apps/storefront/overlays/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: storefront-dev
+  syncPolicy:
+    automated:
+      # S03 L06: automated ALONE does not revert a manual kubectl edit. selfHeal does.
+      selfHeal: true
+      # S03 L06: without prune, a resource deleted from Git survives in the cluster.
+      prune: true
+    syncOptions:
+      - CreateNamespace=true

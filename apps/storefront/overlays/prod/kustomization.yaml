@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: storefront-prod
+resources:
+  - ../../base
+# The image tag is pinned PER ENVIRONMENT. Promotion is a one-line diff to this block —
+# never a branch merge. S04 L03 is built on exactly this.
+images:
+  - name: hashicorp/http-echo
+    newTag: "1.0"
+replicas:
+  - name: storefront
+    count: 3
+configMapGenerator:
+  - name: storefront-banner
+    behavior: merge
+    literals:
+      - banner=storefront v1 — prod

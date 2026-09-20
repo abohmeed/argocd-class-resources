@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: checkout-banner
+data:
+  banner: "checkout v1 — base"
