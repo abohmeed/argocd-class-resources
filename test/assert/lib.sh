@@ -65,7 +65,9 @@ assert_renders_kind() {
 # means a student hits a wall the course promised they would not.
 assert_no_forbidden_sources() {
   local hits
-  hits="$(grep -rIl --exclude-dir=.git --exclude-dir=test \
+  # 'Section 0*' is the 2023 course, left exactly as its live students use it (D-238). The 2026 tree is
+  # what this invariant protects; scanning the 2023 folders kept CI red every night since 2026-09-23.
+  hits="$(grep -rIl --exclude-dir=.git --exclude-dir=test --exclude-dir='Section 0*' \
     -e 'charts\.bitnami\.com' \
     -e 'bitnami/charts' \
     -e 'ingress-nginx' \

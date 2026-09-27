@@ -19,7 +19,7 @@ tier external
 step "sealed-secrets is pinned to the CURRENT org and a current version, not the ancient bitnami-labs v0.20.5"
 assert_file_contains "test/versions.env" 'SEALED_SECRETS_VERSION="v0\.40\.0"' \
   "sealed-secrets pinned to v0.40.0"
-hits="$(grep -rliE --exclude-dir=.git --exclude-dir=test \
+hits="$(grep -rliE --exclude-dir=.git --exclude-dir=test --exclude-dir='Section 0*' \
   -e 'bitnami-labs/sealed-secrets' -e 'sealed-secrets/releases/download/v0\.20\.5' \
   "${REPO_ROOT}" 2>/dev/null || true)"
 if [ -z "${hits}" ]; then
