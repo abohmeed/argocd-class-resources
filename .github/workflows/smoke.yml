@@ -43,6 +43,9 @@ jobs:
           kubectl get nodes | grep -q " Ready " || { kubectl get nodes; echo "node never became Ready"; exit 1; }
           source test/versions.env
           kubectl apply --server-side --force-conflicts -k "https://github.com/argoproj/argo-cd/manifests/crds?ref=${ARGOCD_PIN}"
+          # apply returns before discovery serves the new kinds; without this, the ApplicationSet
+          # parse raced it and failed "no matches for kind" on some runs and not others.
+          kubectl wait --for=condition=Established crd --all --timeout=90s
       - run: ./test/smoke/lint_repo.sh
       # The per-lesson repo tier: every lesson whose claim can be checked from a checkout alone.
       # Cheap enough to run on every PR, which is the point — this is the tier that catches a
