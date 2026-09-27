@@ -12,15 +12,32 @@ kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -k "${REPO_ROOT}/apps/storefront/overlays/dev"
 wait_for_rollout deployment/storefront "${NS}"
 
+# The banner is read the way the lesson reads it: port-forward to the Service, then curl. Until
+# 2026-09-27 this ran `wget` inside the container, but hashicorp/http-echo ships no shell and no
+# wget, so it always read an empty string and reported "banner not served".
+banner() {
+  local pf out=""
+  kubectl port-forward -n "${NS}" svc/storefront 18080:80 >/dev/null 2>&1 &
+  pf=$!
+  for _ in $(seq 1 20); do
+    out="$(curl -s --max-time 2 localhost:18080 2>/dev/null || true)"
+    [ -n "${out}" ] && break
+    sleep 1
+  done
+  kill "${pf}" 2>/dev/null || true
+  wait "${pf}" 2>/dev/null || true
+  printf '%s' "${out}"
+}
+
 step "S01 L04 — the banner is served from an env var, so a ConfigMap edit alone does NOT change it"
-before="$(kubectl exec -n "${NS}" deploy/storefront -- wget -qO- localhost:5678 2>/dev/null || true)"
+before="$(banner)"
 [ -n "${before}" ] && _pass "banner served: ${before}" || _fail "banner not served"
 
 kubectl patch configmap -n "${NS}" \
   "$(kubectl get cm -n "${NS}" -o name | grep storefront-banner | head -1 | cut -d/ -f2)" \
   --type merge -p '{"data":{"banner":"storefront v2 — edited in place"}}'
 sleep 5
-after="$(kubectl exec -n "${NS}" deploy/storefront -- wget -qO- localhost:5678 2>/dev/null || true)"
+after="$(banner)"
 if [ "${before}" = "${after}" ]; then
   _pass "banner unchanged after ConfigMap edit — the teaching point holds (env var is read at start)"
 else
