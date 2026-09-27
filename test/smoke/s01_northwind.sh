@@ -45,5 +45,5 @@ else
 fi
 
 step "cleanup"
-kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
+kubectl delete namespace "${NS}" --wait=true --timeout=120s >/dev/null 2>&1 || true  # wait: s01_l05 next syncs the same overlay into this namespace
 printf '\n\033[32ms01 passed\033[0m\n'

@@ -36,9 +36,9 @@ jobs:
         run: |
           set -euo pipefail
           curl -sfL https://get.k3s.io | sh -
-          sudo chmod 0644 /etc/rancher/k3s/k3s.yaml
-          echo "KUBECONFIG=/etc/rancher/k3s/k3s.yaml" >> "$GITHUB_ENV"
-          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+          mkdir -p ~/.kube && sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config && sudo chown "$(id -u):$(id -g)" ~/.kube/config  # a user-owned COPY, as S02 teaches; never chmod the original
+          echo "KUBECONFIG=$HOME/.kube/config" >> "$GITHUB_ENV"
+          export KUBECONFIG=$HOME/.kube/config
           for i in $(seq 1 60); do kubectl get nodes 2>/dev/null | grep -q " Ready " && break; sleep 3; done
           kubectl get nodes | grep -q " Ready " || { kubectl get nodes; echo "node never became Ready"; exit 1; }
           source test/versions.env
@@ -68,8 +68,8 @@ jobs:
       - name: Install k3s (a cluster built from nothing, every run)
         run: |
           curl -sfL https://get.k3s.io | sh -
-          sudo chmod 0644 /etc/rancher/k3s/k3s.yaml
-          echo "KUBECONFIG=/etc/rancher/k3s/k3s.yaml" >> "$GITHUB_ENV"
+          mkdir -p ~/.kube && sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config && sudo chown "$(id -u):$(id -g)" ~/.kube/config  # a user-owned COPY, as S02 teaches; never chmod the original
+          echo "KUBECONFIG=$HOME/.kube/config" >> "$GITHUB_ENV"
 
       - name: Wait for the node
         run: kubectl wait --for=condition=Ready node --all --timeout=180s
