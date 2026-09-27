@@ -13,9 +13,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 lesson S05-L06 "a Sealed Secrets key backup, taken before disaster, is the only thing that survives a rebuilt controller"
 tier external
 
-step "the rebuild script this lesson depends on actually exists"
-assert_exists_file "test/runtime-verification/build-acd.sh"
-assert_exists_file "test/runtime-verification/acd-lab-user-data"
+# The lab-rebuild tooling this demo depends on is instructor-only and lives on the course share, not in
+# this student repo (withheld per D-238; removed from the repo 2026-09-27). Nothing to assert here.
 
 step "sealed-secrets is pinned to the CURRENT org and a current version, not the ancient bitnami-labs v0.20.5"
 assert_file_contains "test/versions.env" 'SEALED_SECRETS_VERSION="v0\.40\.0"' \
