@@ -33,6 +33,9 @@ assert_file_contains "bootstrap/self-manage-app.yaml" 'prune: *false' \
 assert_file_contains "bootstrap/self-manage-app.yaml" 'ServerSideApply=true' \
   "syncOptions carries ServerSideApply=true — without it this Application hits the exact 262144-byte wall from S02 L03 the moment it ever needs to actually sync"
 
+assert_file_contains "bootstrap/self-manage-app.yaml" 'include: *"\{install.yaml,self-manage-app.yaml\}"' \
+  "directory.include scopes it to its own two files: bootstrap/ also holds the S03 App of Apps root and the S08 edge AppProject"
+
 step "the committed install manifest is pinned to the version actually running"
 if grep -q "quay.io/argoproj/argocd:${ARGOCD_PIN}" "${REPO_ROOT}/bootstrap/install.yaml"; then
   _pass "bootstrap/install.yaml pins ${ARGOCD_PIN}, matching test/versions.env"
@@ -65,6 +68,13 @@ if [ -z "${op_resources}" ] || [ "${op_resources}" = "[]" ] || [ "${op_resources
   _pass "no real sync operation ran — the committed manifest was already identical to the live cluster"
 else
   _fail "a sync operation ran with resources to reconcile (${op_resources}) — the manifest was NOT actually byte-identical to what's running, contradicting the lesson's 'already synced' framing; RESTAGE BEFORE RECORDING"
+fi
+
+step "it did not sweep the rest of bootstrap/ onto the cluster"
+if kubectl get application root -n argocd >/dev/null 2>&1; then
+  _fail "an Application named root exists after the self-manage sync: the argocd Application is syncing bootstrap/root-app.yaml, which belongs to S03 (check directory.include)"
+else
+  _pass "no root Application: the self-manage Application stayed inside install.yaml and itself"
 fi
 
 smoke_done
