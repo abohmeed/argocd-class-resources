@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: storefront
-          image: hashicorp/http-echo:1.0
+          image: hashicorp/http-echo:1.0-typo
           args:
             - "-listen=:5678"
             - "-text=$(BANNER)"
