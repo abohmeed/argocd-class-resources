@@ -15,4 +15,4 @@ configMapGenerator:
   - name: storefront-banner
     behavior: merge
     literals:
-      - banner=storefront v2 — dev
+      - banner=storefront v1 — dev
