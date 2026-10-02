@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: storefront
-          image: ghcr.io/northwind/storefront:1.4.2-typo
+          image: hashicorp/http-echo:1.0
           args:
             - "-listen=:5678"
             - "-text=$(BANNER)"
