@@ -31509,7 +31509,6 @@ subjects:
 ---
 apiVersion: v1
 data:
-  application.resourceTrackingMethod: label
   resource.customizations.ignoreResourceUpdates.ConfigMap: |
     jqPathExpressions:
       # Ignore the cluster-autoscaler status
