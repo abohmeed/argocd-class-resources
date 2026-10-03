@@ -1,5 +1,0 @@
-image:
-  repository: hashicorp/http-echo
-  tag: "1.0"
-banner: "storefront v1: helm"
-replicaCount: 1
