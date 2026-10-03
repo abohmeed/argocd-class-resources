@@ -6,4 +6,4 @@ resources:
   - deployment.yaml
   - configmap.yaml
   - service.yaml
-  - sealedsecret.yaml
+  # - sealedsecret.yaml   # S05-L03: ESO owns checkout-db for this lesson; restored in S05-L06
