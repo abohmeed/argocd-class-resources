@@ -1,23 +1,24 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: checkout-migrate-sql
+  name: checkout-migrate2-sql
   namespace: checkout
   annotations:
     argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/sync-wave: "1"
 data:
-  001_orders.sql: |
-    CREATE TABLE IF NOT EXISTS orders (id serial primary key, created_at timestamptz default now());
+  002_orders_status.sql: |
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'pending';
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: checkout-migrate
+  name: checkout-migrate2
   namespace: checkout
   annotations:
     argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/hook-delete-policy: HookSucceeded
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   backoffLimit: 0
   template:
@@ -26,7 +27,7 @@ spec:
       containers:
         - name: migrate
           image: postgres:18.6
-          command: ["psql", "-h", "checkout-postgres", "-U", "checkout", "-d", "checkout", "-f", "/sql/001_orders.sql"]
+          command: ["psql", "-h", "checkout-postgres", "-U", "checkout", "-d", "checkout", "-f", "/sql/002_orders_status.sql"]
           env:
             - name: PGPASSWORD
               valueFrom:
@@ -39,4 +40,4 @@ spec:
       volumes:
         - name: sql
           configMap:
-            name: checkout-migrate-sql
+            name: checkout-migrate2-sql
