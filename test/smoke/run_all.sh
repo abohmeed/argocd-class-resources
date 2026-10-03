@@ -31,11 +31,26 @@ for s in test/smoke/s[0-9][0-9]_l[0-9][0-9]*.sh; do
     *) echo "unknown tier '$WANT' (repo | cluster | all)" >&2; exit 2 ;;
   esac
 
-  out="$(bash "$s" 2>&1)"; rc=$?
+  # Print each script as it starts, and give each one its own ceiling (D-342): a hung script fails on
+  # its own and the suite moves on, instead of the whole job going silent until the job timeout.
+  started=$(date +%s)
+  printf '  -> %s  %s\n' "$(date -u +%H:%M:%S)" "$(basename "$s")"
+  if command -v timeout >/dev/null 2>&1; then
+    out="$(timeout --kill-after=15 "${SMOKE_SCRIPT_TIMEOUT:-600}" bash "$s" 2>&1)"; rc=$?
+  else
+    out="$(bash "$s" 2>&1)"; rc=$?
+  fi
+  took=$(( $(date +%s) - started ))
   case "$rc" in
-    0)  pass=$((pass+1)) ;;
-    78) declared=$((declared+1)); declared_names="${declared_names}\n    $(printf '%s' "$out" | grep -m1 DECLARED | sed 's/^  //')" ;;
-    *)  fail=$((fail+1)); failed_names="${failed_names} $(basename "$s")"
+    0)  pass=$((pass+1)); printf '     pass  %ss\n' "$took" ;;
+    78) declared=$((declared+1)); printf '     declared external  %ss\n' "$took"
+        declared_names="${declared_names}\n    $(printf '%s' "$out" | grep -m1 DECLARED | sed 's/^  //')" ;;
+    124|137)
+        fail=$((fail+1)); failed_names="${failed_names} $(basename "$s")"
+        printf '  \033[31mFAIL\033[0m %s timed out after %ss (SMOKE_SCRIPT_TIMEOUT=%s); last output:\n' \
+          "$(basename "$s")" "$took" "${SMOKE_SCRIPT_TIMEOUT:-600}"
+        printf '%s\n' "$out" | tail -20 ;;
+    *)  fail=$((fail+1)); failed_names="${failed_names} $(basename "$s")"; printf '     FAIL  %ss\n' "$took"
         printf '%s\n' "$out" | tail -20 ;;
   esac
 done
