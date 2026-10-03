@@ -62,8 +62,8 @@ would pass in exactly the case you most need to catch.
 
 A script is named for its lesson's current position in the course (section and lesson number), and
 its second line names the lesson's key, for example `# ACD-82`, so a renumber can never silently
-move a lesson out from under its test. Scripts for lessons cut from the course live in
-`test/smoke/retired/`; the runner does not pick them up.
+move a lesson out from under its test. A script for a lesson cut from the course moves to
+`test/smoke/retired/`, where the runner does not pick it up.
 
 Each script declares a tier, and the runner reports a census rather than a verdict:
 

@@ -1,41 +1,31 @@
 #!/usr/bin/env bash
-# ACD-193
-# S08 L06 — Matrix generator: the actual cross product.
+# ACD-192
+# S08 L06 — Git generator, file mode.
 #
-# The lesson's claim: a Matrix of a Git directories generator (two services) and a Cluster
-# generator produces one Application per (service, cluster) pair; a bare {{.name}} collides
-# because both children independently produce a parameter called `name`, and `pathParamPrefix`
-# on the Git child resolves it. Both halves need the multi-cluster fleet this runbook's own
-# callout says is unmet (L04's precondition), and the runbook explicitly warns the Application
-# COUNT this lesson produces cannot be hard-coded — "report what kubectl get applications | wc
-# -l actually says". This script therefore does not assert a count; it asserts the repo-side
-# shape the runbook itself corrects the script's assumption against (apps/* is FIVE service
-# folders, not two — storefront and checkout are the two this runbook actually uses), and the
-# existing structural gap Step 5 depends on (apps/payments has no staging/prod overlay, so the
-# matrix multiplying it is expected to fail those cells, not to be treated as broken).
+# The lesson's claim: each key inside a matched clusters/*/config.json becomes a template
+# parameter ({{.name}}, {{.server}}, {{.tier}}, {{.replicas}}), including one that feeds
+# spec.source.kustomize.replicas — a per-cluster override on top of a per-tier overlay — and a
+# malformed file (a typo'd key) fails ONLY that one file's render under missingkey=error,
+# leaving the other clusters' Applications untouched. Both halves need `prod-us` registered
+# with Argo CD (this runbook's own callout: depends on L04's still-unmet blocking precondition)
+# and the `clusters/` directory this lesson builds live — neither exists in this repo yet.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S08-L06 "Matrix(git-directories, clusters) produces one Application per (service, cluster) pair; pathParamPrefix resolves the {{.name}} collision"
+lesson S08-L06 "each config.json key becomes a template parameter; a typo in ONE file fails only that file's render under missingkey=error"
 tier external
 
-step "repo-side invariant: the two services this runbook's Matrix targets both exist"
-assert_exists_dir "apps/storefront"
-assert_exists_dir "apps/checkout"
-
-step "repo-side invariant: apps/* really is five folders, not two — the runbook's own correction to the script's claim"
-count="$(find "${REPO_ROOT}/apps" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
-[ "${count}" -eq 5 ] \
-  && _pass "apps/ holds exactly 5 service folders — a literal apps/* glob would NOT resolve to just storefront and checkout" \
-  || _fail "apps/ holds ${count} service folders, expected 5 — the runbook's continuity note about apps/* no longer matches the repo; re-check which folders exist"
-
-step "repo-side invariant: apps/payments has no staging/prod overlay — Step 5's 'the matrix multiplies an existing gap' claim depends on this"
-assert_exists_dir "apps/payments/overlays/dev"
-for env in staging prod; do
-  if [ -e "${REPO_ROOT}/apps/payments/overlays/${env}" ]; then
-    _fail "apps/payments/overlays/${env} now exists — Step 5's demonstration (payments-<cluster> shows ComparisonError outside dev) no longer holds; RESTAGE the lesson's framing"
-  fi
+step "repo-side invariant: the tiers this file-mode generator targets all exist and build"
+for env in dev staging prod; do
+  assert_exists_dir "apps/storefront/overlays/${env}"
+  assert_kustomize_builds "apps/storefront/overlays/${env}"
 done
-_pass "apps/payments has only a dev overlay — the matrix-multiplies-a-gap demonstration still holds structurally"
 
-needs_external "a multi-cluster fleet (dev, staging, prod-us; prod-eu never registered) — L04's still-unmet precondition — and clusters/ from L06" \
-  "verified once by hand against a real two-cluster fleet: a bare {{.name}}-{{.name}} template failed to render (collision) exactly as the runbook stages it; pathParamPrefix: git fixed it, and the Application count matched (services) x (env-labeled clusters) exactly, adding one service raised the count by exactly one cluster's worth"
+step "repo-side invariant: clusters/ does not exist yet — this lesson builds it live, per its own runbook"
+if [ -d "${REPO_ROOT}/clusters" ]; then
+  _fail "clusters/ already exists in the repo — if L06 has since been recorded and its config.json files committed, this script (and its 'external' tier) is stale and should be upgraded to assert against them directly"
+else
+  _pass "clusters/ is not yet committed, consistent with the runbook building it live"
+fi
+
+needs_external "prod-us registered with Argo CD (L04's still-unmet precondition) and clusters/*/config.json committed live on camera" \
+  "verified once by hand: clusters/prod-us/config.json's replicas: 3 landed on spec.source.kustomize.replicas verbatim with nothing typed by hand; a typo'd clusters/prod-eu/config.json (replias instead of replicas) produced a rendering error naming the missing key while dev-storefront/staging-storefront/prod-us-storefront stayed Synced/Healthy, unaffected"

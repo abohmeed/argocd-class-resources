@@ -13,4 +13,4 @@ configMapGenerator:
   - name: loyalty-banner
     behavior: merge
     literals:
-      - banner=loyalty v1 — dev
+      - "banner=loyalty v1: dev"

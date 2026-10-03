@@ -13,4 +13,4 @@ configMapGenerator:
   - name: checkout-banner
     behavior: merge
     literals:
-      - banner=checkout v1 — dev
+      - "banner=checkout v1: dev"

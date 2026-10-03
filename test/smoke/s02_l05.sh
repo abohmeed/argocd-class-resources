@@ -10,7 +10,7 @@
 # exact sequence the runbook shows and watches which half happens.
 #
 # This does not disturb the "argocd" namespace or the shared storefront-dev Application other
-# lessons build (S02 L08 puts Argo CD under self-management; the course's real recording keeps
+# lessons build (S02 L10 puts Argo CD under self-management; the course's real recording keeps
 # this Application registered for good). It uses its own throwaway Application/namespace name
 # so it can run in the same CI job as other cluster-tier scripts without colliding, and it tears
 # itself down whether it passes or fails.
@@ -19,8 +19,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 lesson S02-L05 "automated (with no selfHeal) detects a manual edit as OutOfSync but does not revert it"
 tier cluster
 
-APP="s01l05-probe"
-NS="s01l05-probe"
+APP="s02l05-probe"
+NS="s02l05-probe"
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
 
 cleanup() {

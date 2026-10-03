@@ -1,81 +1,74 @@
 #!/usr/bin/env bash
-# ACD-117
-# S02 L09 — Argo CD manages its OWN install, and reaches Synced/Healthy without ever running
-# a real sync — because the committed manifest is byte-identical to what's running.
+# ACD-111
+# S02 L09 — the admin password actually rotates; the OLD one stops working.
 #
-# The lesson's claim is specific: "it's already synced" the moment it's applied, with no visible
-# reconcile, because bootstrap/install.yaml is the exact tag already on the cluster. That only
-# holds if two things stay true: the committed manifest is still pinned to ${ARGOCD_PIN}, and
-# the cluster is still running ${ARGOCD_PIN}. If either drifts — a version bump on one side and
-# not the other — the self-manage Application would show OutOfSync immediately, and the
-# narration's "already synced" framing would be shown as false on the very frame it airs.
+# The lesson's claim is not "argocd account update-password prints 'Password updated'" — a
+# broken rotation could still print that. The claim that matters is behavioural: after
+# rotation, the ORIGINAL bootstrap password must stop authenticating and the NEW one must work.
+# If `update-password` ever silently no-opped (wrong account, wrong server, a swallowed error),
+# the old password would keep working and the lesson's premise — "whatever gets typed here
+# becomes the account's password going forward" — would be false while the CLI output still
+# looked like success.
 #
-# Note: the runbook's own inline YAML names this Application `self`, but the file actually
-# committed in this repo, bootstrap/self-manage-app.yaml, names it `argocd` — this script reads
-# the name out of the real file rather than assuming either, so it is correct regardless of
-# which one is right (that mismatch is worth a producer decision on its own, separate from this
-# script).
-#
-# No cleanup: this is the same accumulating state s02_control_plane.sh and s02_l03.sh leave
-# behind. The runbook is explicit ("Teardown: None... S14 L01" depends on it) and deleting the
-# self-manage Application here would mean Argo CD no longer manages its own install afterward.
+# This reuses the real "admin" account and the real Gateway route from S02 L08, because there
+# is only one admin account to test. It leaves the password rotated at the end, same as the
+# runbook's own Teardown ("None... stays active") — this is accumulating state other lessons
+# in this section's narration assume, not a probe.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S02-L09 "the self-manage Application reaches Synced/Healthy with no real sync, because the committed install manifest matches what's running"
+lesson S02-L09 "argocd account update-password really rotates the credential — the old bootstrap password stops working, the new one works"
 tier cluster
 
-step "both files this lesson commits are actually in the repo"
-assert_exists_file "bootstrap/install.yaml"
-assert_exists_file "bootstrap/self-manage-app.yaml"
-
-step "the two details that go beyond what the narration says aloud, and both matter"
-assert_file_contains "bootstrap/self-manage-app.yaml" 'prune: *false' \
-  "prune: false — an accidental Git deletion cannot take Argo CD itself down with it"
-assert_file_contains "bootstrap/self-manage-app.yaml" 'ServerSideApply=true' \
-  "syncOptions carries ServerSideApply=true — without it this Application hits the exact 262144-byte wall from S02 L03 the moment it ever needs to actually sync"
-
-assert_file_contains "bootstrap/self-manage-app.yaml" 'include: *"\{install.yaml,self-manage-app.yaml\}"' \
-  "directory.include scopes it to its own two files: bootstrap/ also holds the S03 App of Apps root and the S08 edge AppProject"
-
-step "the committed install manifest is pinned to the version actually running"
-if grep -q "quay.io/argoproj/argocd:${ARGOCD_PIN}" "${REPO_ROOT}/bootstrap/install.yaml"; then
-  _pass "bootstrap/install.yaml pins ${ARGOCD_PIN}, matching test/versions.env"
-else
-  _fail "bootstrap/install.yaml does not pin ${ARGOCD_PIN} — Step 1's claim of a byte-identical copy no longer holds, and the self-manage Application will show OutOfSync on first apply"
+if ! command -v argocd >/dev/null 2>&1; then
+  step "argocd CLI not on PATH — installing ${ARGOCD_PIN} to match the server"
+  curl -sSL -o /tmp/argocd "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_PIN}/argocd-linux-amd64" \
+    && sudo install -m 555 /tmp/argocd /usr/local/bin/argocd \
+    || _fail "could not install the argocd CLI"
 fi
 
-running_image="$(kubectl -n argocd get deploy argocd-server -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)"
-case "${running_image}" in
-  *":${ARGOCD_PIN}")
-    _pass "the running argocd-server is also on ${ARGOCD_PIN}"
-    ;;
-  *)
-    _fail "the running argocd-server image is '${running_image:-unknown}', not ${ARGOCD_PIN} — the cluster and the committed manifest have drifted apart"
-    ;;
-esac
+grep -q 'argocd\.local' /etc/hosts 2>/dev/null || echo '127.0.0.1 argocd.local' | sudo tee -a /etc/hosts >/dev/null
 
-step "apply the self-manage Application and read its own name out of the file, not out of the prose"
-app_name="$(awk '/^metadata:/{f=1;next} f && /name:/{print $2; exit}' "${REPO_ROOT}/bootstrap/self-manage-app.yaml")"
-[ -n "${app_name}" ] || _fail "could not read metadata.name out of bootstrap/self-manage-app.yaml"
-kubectl apply -n argocd -f "${REPO_ROOT}/bootstrap/self-manage-app.yaml" >/dev/null
-wait_for_sync "${app_name}" 180
+step "Argo CD is reachable over TLS through the S02 L08 Gateway route"
+code="$(curl -sk -o /dev/null -w '%{http_code}' https://argocd.local:8443/ 2>/dev/null)"
+[ "${code}" = "200" ] && _pass "https://argocd.local:8443/ -> 200" \
+  || _fail "https://argocd.local:8443/ -> ${code:-no response} — S02 L08's route must be up before this lesson's Preconditions are met"
 
-step "it reached Synced/Healthy WITHOUT running a real sync operation"
-# If the committed manifest actually differed from the live objects, Argo CD would have run an
-# operation with a non-empty resource list to reconcile that diff. "Already synced" means either
-# no operationState at all, or one whose syncResult touched nothing.
-op_resources="$(kubectl get application "${app_name}" -n argocd -o jsonpath='{.status.operationState.syncResult.resources}' 2>/dev/null)"
-if [ -z "${op_resources}" ] || [ "${op_resources}" = "[]" ] || [ "${op_resources}" = "null" ]; then
-  _pass "no real sync operation ran — the committed manifest was already identical to the live cluster"
+step "the bootstrap Secret exists and decodes to a real password"
+initial_pw="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)"
+if [ -n "${initial_pw}" ]; then
+  _pass "argocd-initial-admin-secret decodes to a non-empty password"
 else
-  _fail "a sync operation ran with resources to reconcile (${op_resources}) — the manifest was NOT actually byte-identical to what's running, contradicting the lesson's 'already synced' framing; RESTAGE BEFORE RECORDING"
+  _fail "argocd-initial-admin-secret is missing or empty — either a prior take already deleted it, or the bootstrap never ran; cannot test the rotation this lesson demonstrates"
 fi
 
-step "it did not sweep the rest of bootstrap/ onto the cluster"
-if kubectl get application root -n argocd >/dev/null 2>&1; then
-  _fail "an Application named root exists after the self-manage sync: the argocd Application is syncing bootstrap/root-app.yaml, which belongs to S03 (check directory.include)"
+step "the bootstrap password logs in"
+if argocd login argocd.local:8443 --insecure --username admin --password "${initial_pw}" >/dev/null 2>&1; then
+  _pass "logged in with the bootstrap password"
 else
-  _pass "no root Application: the self-manage Application stayed inside install.yaml and itself"
+  _fail "could not log in with the bootstrap password — either it was already rotated by an earlier take or the login path itself is broken"
+fi
+
+step "rotate the password"
+new_pw="S02L09-probe-$(date +%s)"
+if argocd account update-password --insecure --server argocd.local:8443 \
+    --current-password "${initial_pw}" --new-password "${new_pw}" >/dev/null 2>&1; then
+  _pass "argocd account update-password reported success"
+else
+  _fail "argocd account update-password failed outright"
+fi
+
+step "the NEW password logs in"
+if argocd login argocd.local:8443 --insecure --username admin --password "${new_pw}" >/dev/null 2>&1; then
+  _pass "logged in with the rotated password"
+else
+  _fail "the NEW password does not log in — rotation did not actually take effect, even though update-password reported success"
+fi
+
+step "the OLD bootstrap password must NOT log in anymore"
+if argocd login argocd.local:8443 --insecure --username admin --password "${initial_pw}" >/dev/null 2>&1; then
+  _fail "the OLD bootstrap password STILL logs in after rotation — update-password is cosmetic, not real, and the lesson's central claim is false"
+else
+  _pass "the old bootstrap password no longer authenticates — the rotation is real, not cosmetic"
 fi
 
 smoke_done

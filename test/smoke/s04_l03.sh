@@ -1,72 +1,50 @@
 #!/usr/bin/env bash
-# ACD-99
-# S04 L03 — Argo CD renders a Helm chart itself; it never runs `helm install`.
+# ACD-95
+# S04 L03 — Promotion is a one-line edit to overlays/prod, never a branch merge.
 #
-# The lesson's surprise ("helm list shows nothing") is not really about the `helm list` command
-# — it's about WHY. Argo CD's repo-server calls Helm as a library to inflate the chart (the
-# equivalent of `helm template`), then applies the resulting manifests itself, so it never
-# creates the release object (a Secret labelled owner=helm) that `helm list` actually reads
-# from. Asserting the command's raw output is fragile — a namespace someone `helm install`ed
-# into out of band can make `helm list` non-empty for reasons that have nothing to do with this
-# lesson. Asserting the REASON — no release object exists even though the Deployment is real
-# and healthy — is what actually fails if Argo CD's Helm integration ever changed to behave
-# like the CLI.
+# The lesson deliberately reproduces the branch-merge tangle first (two feature branches merged
+# into a shared `staging` branch, one reviewed and one not, both riding into a `prod` branch
+# together), then undoes it. What this defends is the state that must be true AFTER that undo:
+# no trace of the branch-merge trap left in the tree, the promotable field (images.newTag)
+# isolated to a single line so editing it really is a one-line diff, and base left completely
+# untouched by any environment's delta — which is what makes the diff reviewable in the first
+# place. No git commands run here: this checkout is not a git working copy in this environment,
+# so every check is file-content, matching the way this script is actually run.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S04-L03 "Argo CD renders a Helm chart without ever creating a Helm release object, which is why helm list sees nothing"
-tier cluster
+lesson S04-L03 "promotion is a one-line edit to overlays/prod's image tag, and base never carries an environment-specific value"
+tier repo
 
-APP="s04l04-storefront-helm"
-NS="s04l04-storefront-helm"
-REPO="https://github.com/abohmeed/argocd-class-resources.git"
+step "the branch-merge trap's placeholder file was cleaned up, not left in the tree"
+if [ -e "${REPO_ROOT}/apps/checkout/SPIKE_NOTES.md" ]; then
+  _fail "apps/checkout/SPIKE_NOTES.md still exists — Step 1's branch-merge trap was never torn down, and Step 3's cleanup claim does not hold"
+fi
+_pass "no leftover SPIKE_NOTES.md from the branch-merge trap"
 
-cleanup() {
-  kubectl delete application "${APP}" -n argocd --wait=true --timeout=90s >/dev/null 2>&1 || true
-  kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
+step "the temporary JSON6902 failure demo from S04 L02 Step 4 never reached this overlay"
+assert_file_lacks "apps/storefront/overlays/staging/kustomization.yaml" '^patches:' \
+  "overlays/staging carries no patches: block — the illustration-only JSON6902 failure was never committed"
+assert_file_lacks "apps/storefront/overlays/prod/kustomization.yaml" '^patches:' \
+  "overlays/prod carries no patches: block — nothing here besides the reviewable per-environment delta"
 
-step "the chart this lesson builds is actually committed"
-assert_exists_file "charts/storefront/Chart.yaml"
-assert_exists_file "charts/storefront/values.yaml"
+step "base never carries an environment-specific value — the delta lives ONLY in the overlay"
+assert_file_lacks "apps/storefront/base/configmap.yaml" 'storefront v1[^a-z0-9]{1,4}(staging|prod)' \
+  "base/configmap.yaml has no staging/prod-specific banner text — that text belongs to the overlay's configMapGenerator alone"
 
-step "sync a Helm-sourced Application through Argo CD"
-cat <<APPEOF | kubectl apply -f - >/dev/null
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata: {name: ${APP}, namespace: argocd}
-spec:
-  project: default
-  source: {repoURL: "${REPO}", targetRevision: main, path: charts/storefront}
-  destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
-  syncPolicy:
-    automated: {}
-    syncOptions: ["CreateNamespace=true"]
-APPEOF
-wait_for_sync "${APP}" 240
-wait_for_rollout deployment/storefront "${NS}"
-
-step "the pods are real and healthy — this is not a surprise about something that never deployed"
-running="$(kubectl get pods -n "${NS}" -l app.kubernetes.io/name=storefront \
-  --field-selector=status.phase=Running -o name 2>/dev/null | wc -l | tr -d ' ')"
-[ "${running}" -gt 0 ] && _pass "${running} pod(s) Running in ${NS}" \
-  || _fail "no Running storefront pod in ${NS} — the chart never actually deployed"
-
-step "no Helm release object exists in the namespace — Argo CD never ran helm install"
-release_objects="$(kubectl get secret -n "${NS}" -l owner=helm -o name 2>/dev/null | wc -l | tr -d ' ')"
-if [ "${release_objects}" -eq 0 ]; then
-  _pass "no owner=helm release Secret in ${NS} — this is WHY helm list sees nothing, not a coincidence"
+step "the promotable field is isolated to one line — editing it changes nothing else"
+tmp_orig="$(mktemp)"
+tmp_edit="$(mktemp)"
+cp "${REPO_ROOT}/apps/storefront/overlays/prod/kustomization.yaml" "${tmp_orig}"
+sed 's/newTag: "1\.0"/newTag: "1.1"/' "${tmp_orig}" > "${tmp_edit}"
+changed="$(diff -u "${tmp_orig}" "${tmp_edit}" | grep -cE '^[+-][^+-]' || true)"
+rm -f "${tmp_orig}" "${tmp_edit}"
+if [ "${changed}" -eq 2 ]; then
+  _pass "bumping images.newTag touches exactly one line (one removed, one added) — this is the whole promotion"
 else
-  _fail "a Helm release object exists in ${NS} — Argo CD's Helm source is now creating releases the way the CLI does, and this lesson's whole surprise is gone"
+  _fail "bumping images.newTag touched ${changed} diff line(s), not 2 — promotion to prod is no longer a one-line, reviewable edit"
 fi
 
-step "helm list itself confirms the same thing, for the on-camera moment"
-if command -v helm >/dev/null 2>&1; then
-  out="$(helm list -n "${NS}" --short 2>/dev/null || true)"
-  [ -z "${out}" ] && _pass "helm list -n ${NS} is empty" \
-    || _fail "helm list -n ${NS} unexpectedly shows a release: ${out}"
-else
-  _fail "helm binary not on PATH — this cluster-tier lesson needs it (see runbook Preconditions)"
-fi
+step "the overlay is well-formed YAML before and after that kind of edit"
+assert_yaml_wellformed "apps/storefront/overlays/prod/kustomization.yaml"
 
 smoke_done

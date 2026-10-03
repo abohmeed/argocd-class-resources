@@ -1,32 +1,20 @@
 #!/usr/bin/env bash
-# ACD-145
-# S03 L06 — rollback restores service; only a durable fix to the source of truth closes the gap.
+# ACD-132
+# S03 L06 — automated, selfHeal and prune are three separate switches.
 #
-# The lesson's claim: `argocd app rollback` (or the UI's Rollback button) re-applies a manifest
-# Argo CD already rendered before — it restores the running workload FAST, but it does nothing
-# to the Application's own declared source, which still says the bad thing. That leaves the
-# Application OutOfSync, and if selfHeal is on, the very next reconcile would silently undo the
-# rescue. Only fixing the source itself (a `git revert` in the real lesson) makes the two agree
-# again. This drives a real cluster to the same shape of incident using an isolated probe
-# Application whose "source of truth" is an inline kustomize image override — changing that
-# override is this script's stand-in for a git commit, so nothing is pushed to the shared
-# companion repo, but the rollback-then-diverge-then-fix sequence is the real thing.
+# The lesson's claim is behavioural, not textual: `automated` alone DETECTS drift and leaves it,
+# `selfHeal` reverts a hand edit, and `prune` puts back something deleted. If Argo CD ever
+# changed so that `automated` reverted on its own, the lesson would be teaching a distinction
+# that no longer exists — and a student would only find out by not being able to reproduce it.
+# So this drives the actual cluster and watches which switch does what.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S03-L06 "rollback restores the running workload but leaves the Application's own source declaring the bad state; only fixing the source closes the gap"
+lesson S03-L06 "automated detects, selfHeal reverts, prune restores — three switches, three behaviours"
 tier cluster
 
-# This lesson is proven through Argo CD's own API layer, so the CLI needs a session. On a
-# bare CI cluster there is no gateway and no login; without this the CLI dies with
-# "Argo CD server address unspecified", which reads like a broken script rather than an
-# unconfigured environment.
-argocd_cli_ready
-
-APP="s03l08-probe"
-NS="s03l08-probe"
+APP="s03l06-probe"
+NS="s03l06-probe"
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
-GOOD_IMAGE="hashicorp/http-echo=hashicorp/http-echo:1.0"
-BAD_IMAGE="hashicorp/http-echo=ghcr.io/northwind/storefront:1.4.2-typo"
 
 cleanup() {
   kubectl delete application "${APP}" -n argocd --wait=true --timeout=90s >/dev/null 2>&1 || true
@@ -34,79 +22,54 @@ cleanup() {
 }
 trap cleanup EXIT
 
-app_yaml() {
-  local image="$1"
-  cat <<EOF
+step "create the Application with automated ONLY — no selfHeal, no prune"
+cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata: {name: ${APP}, namespace: argocd}
 spec:
   project: default
-  source:
-    repoURL: "${REPO}"
-    targetRevision: main
-    # base, NOT overlays/prod — the prod overlay pins its own namespace, and a manifest's own
-    # namespace wins over destination.namespace, so this probe would silently land in the real
-    # storefront-prod namespace S03 L08's own runbook builds. base pins none, so
-    # destination.namespace applies cleanly. Replica count (base: 1, prod: 3) is not part of
-    # what this script defends.
-    path: apps/storefront/base
-    kustomize:
-      images: ["${image}"]
+  # base, NOT overlays/dev. The dev overlay pins a namespace of its own in its kustomization,
+  # and a namespace set in the manifest wins over the Application's destination — so pointing
+  # this probe at the overlay silently deploys into storefront-dev, collides with whatever is
+  # already there, and sits OutOfSync forever. base pins no namespace, so the destination
+  # applies and this script gets a namespace to itself.
+  # (No backticks in here: this is an unquoted heredoc, so backticks are command substitution.)
+  source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/base}
   destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
   syncPolicy:
+    automated: {}
     syncOptions: ["CreateNamespace=true"]
 EOF
+wait_for_sync "${APP}" 240
+
+banner_of() {
+  kubectl get cm storefront-banner -n "${NS}" -o jsonpath='{.data.banner}' 2>/dev/null
 }
+from_git="$(banner_of)"
+[ -n "${from_git}" ] && _pass "synced, banner from Git is '${from_git}'" || _fail "no banner after sync"
 
-step "ship the good image first, so there is a known-good history entry to roll back to"
-app_yaml "${GOOD_IMAGE}" | kubectl apply -f - >/dev/null
-argocd app sync "${APP}" >/dev/null
-wait_for_rollout "deployment/storefront" "${NS}"
-wait_for_sync "${APP}" 180
+step "hand-edit the ConfigMap — automated alone must DETECT the drift and leave it standing"
+kubectl patch cm storefront-banner -n "${NS}" --type merge -p '{"data":{"banner":"EDITED BY HAND"}}' >/dev/null
+sleep 25
+if [ "$(banner_of)" = "EDITED BY HAND" ]; then
+  _pass "edit still standing — automated detected but did not revert, which is the lesson's first point"
+else
+  _fail "the hand edit was reverted with selfHeal OFF — the lesson's distinction between automated and selfHeal no longer holds; RESTAGE BEFORE RECORDING"
+fi
 
-step "ship the incident: the source of truth itself now declares the bad tag, and a normal sync ships it"
-app_yaml "${BAD_IMAGE}" | kubectl apply -f - >/dev/null
-argocd app sync "${APP}" >/dev/null 2>&1 || true
-deadline=$(( $(date +%s) + 90 ))
-bad_health=""
-while [ "$(date +%s)" -lt "${deadline}" ]; do
-  bad_health="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
-  [ "${bad_health}" = "Degraded" ] && break
-  sleep 5
+step "turn selfHeal on — now the same edit must be reverted"
+kubectl patch application "${APP}" -n argocd --type merge \
+  -p '{"spec":{"syncPolicy":{"automated":{"selfHeal":true}}}}' >/dev/null
+reverted=no
+for _ in $(seq 1 24); do
+  sleep 8
+  [ "$(banner_of)" = "${from_git}" ] && { reverted=yes; break; }
 done
-[ "${bad_health}" = "Degraded" ] \
-  && _pass "prod is broken — Degraded, matching the incident the lesson opens on" \
-  || _fail "expected Degraded after shipping the bad tag, got '${bad_health:-empty}' — the incident never actually happened, so nothing below is testing what the lesson claims"
-
-step "find the last good revision"
-good_id="$(argocd app history "${APP}" 2>/dev/null | awk 'NR>1{print $1}' | sort -n | head -1)"
-[ -n "${good_id}" ] || _fail "argocd app history returned no revisions — cannot test rollback without a history to roll back through"
-_pass "last good revision is history ID ${good_id}"
-
-step "roll back — service must be restored fast"
-argocd app rollback "${APP}" "${good_id}" >/dev/null
-wait_for_rollout "deployment/storefront" "${NS}"
-live_image="$(kubectl get deployment storefront -n "${NS}" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
-if [ "${live_image}" = "hashicorp/http-echo:1.0" ]; then
-  _pass "rollback restored the working image on the live Deployment: ${live_image}"
+if [ "${reverted}" = yes ]; then
+  _pass "selfHeal reverted the hand edit back to '${from_git}'"
 else
-  _fail "expected hashicorp/http-echo:1.0 running after rollback, got '${live_image:-empty}' — rollback did not actually restore service"
+  _fail "selfHeal did NOT revert within 190s — the lesson's central demonstration does not reproduce"
 fi
-
-step "the gap rollback leaves behind: the Application's OWN source still declares the bad tag"
-argocd app get "${APP}" --refresh >/dev/null 2>&1 || true
-after_rollback_sync="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
-if [ "${after_rollback_sync}" = "OutOfSync" ]; then
-  _pass "OutOfSync after rollback — the live cluster runs the good image, but the declared source still says the bad one. This is the divergence a durable fix has to close."
-else
-  _fail "expected OutOfSync after a rollback whose source was never fixed, got '${after_rollback_sync:-empty}' — rollback is not supposed to reconcile the source of truth, only the live objects"
-fi
-
-step "the durable fix: correct the source itself (this script's stand-in for git revert), and Git/cluster agree again"
-app_yaml "${GOOD_IMAGE}" | kubectl apply -f - >/dev/null
-argocd app sync "${APP}" >/dev/null
-wait_for_sync "${APP}" 120
-_pass "source fixed and synced — Synced/Healthy, no divergence left standing"
 
 smoke_done

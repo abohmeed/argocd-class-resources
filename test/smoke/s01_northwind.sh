@@ -35,7 +35,7 @@ before="$(banner)"
 
 kubectl patch configmap -n "${NS}" \
   "$(kubectl get cm -n "${NS}" -o name | grep storefront-banner | head -1 | cut -d/ -f2)" \
-  --type merge -p '{"data":{"banner":"storefront v2 — edited in place"}}'
+  --type merge -p '{"data":{"banner":"storefront v2: edited in place"}}'
 sleep 5
 after="$(banner)"
 if [ "${before}" = "${after}" ]; then

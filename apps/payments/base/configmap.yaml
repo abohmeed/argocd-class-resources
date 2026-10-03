@@ -3,4 +3,4 @@ kind: ConfigMap
 metadata:
   name: payments-banner
 data:
-  banner: "payments v1 — base"
+  banner: "payments v1: base"

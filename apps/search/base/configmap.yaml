@@ -3,4 +3,4 @@ kind: ConfigMap
 metadata:
   name: search-banner
 data:
-  banner: "search v1 — base"
+  banner: "search v1: base"

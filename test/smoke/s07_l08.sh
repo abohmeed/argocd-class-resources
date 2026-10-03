@@ -1,67 +1,108 @@
 #!/usr/bin/env bash
-# ACD-146
-# S07 L08 — standing up SSO end to end: Authentik, Dex, and first login.
+# ACD-125
+# S07 L08 — logs are an RBAC resource now.
 #
-# None of this lesson's actual claim runs in CI. It installs a second stateful component
-# (Authentik, its own Postgres/Redis), provisions it through a Blueprint whose exact chart-values
-# shape the runbook itself flags as unverified, and closes on `argocd login --sso`, which opens a
-# real browser at a real identity provider's login page — there is no headless equivalent to
-# automate here honestly. The runbook's own header already marks this lesson "RUNTIME OWED": this
-# script does not pretend otherwise.
+# The claim: reading a Pod's logs through Argo CD is gated by its OWN `logs` RBAC resource,
+# entirely separate from `applications` — an account already holding create/update/delete AND the
+# S07 L07 update/*+delete/* wildcards is still refused `argocd app logs`, until an explicit
+# `p, <role>, logs, get, <proj>/*, allow` line is added. Harder to notice than L07's refusal
+# because there is no error, just nothing: the UI's Logs tab renders an empty pane, which is why
+# this script treats "the command errored" and "the command silently returned nothing" as the
+# SAME failure, not just the first one.
 #
-# What IS checkable from a repo checkout, and is worth checking every time regardless of whether
-# the live SSO path is ever exercised in CI:
-#   - the course's own stated choice of identity provider. Authentik, never Keycloak — the runbook
-#     names the reason (Keycloak's default footprint was rejected for this course's node budget).
-#     A stray Keycloak reference would mean the course drifted from its own documented decision.
-#   - no OIDC client secret committed anywhere looks like a real credential. A realistic-looking
-#     token shape gets the whole repo push rejected by GitHub push protection — this exists to
-#     catch that before a push does, not after.
-#   - versions.env pins every other external tool this course installs; Authentik does not have an
-#     entry yet, and the runbook's own Preconditions flag that gap. This assertion is EXPECTED TO
-#     FAIL until that pin is added — that is real, current, and this script's job is to say so
-#     rather than quietly not check it.
+# `argocd app logs` can follow by default depending on version/flags; wrapped in `timeout` so a
+# CI run cannot hang waiting on a log stream that never closes.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S07-L08 "Authentik (never Keycloak) is the identity provider; SSO first-login is a live, browser-driven OIDC handshake this suite cannot automate honestly"
-tier external
+lesson S07-L08 "logs is its own RBAC resource — full applications-level access does not grant it, only an explicit logs/get policy line does"
+tier cluster
 
-step "the course's own documented identity-provider choice holds: no Keycloak reference anywhere"
-hits="$(grep -rIli --exclude-dir=.git --exclude-dir=test -e 'keycloak' "${REPO_ROOT}" 2>/dev/null || true)"
-if [ -z "${hits}" ]; then
-  _pass "no Keycloak reference in the repo — Authentik is the only identity provider named"
-else
-  _fail "Keycloak referenced in: ${hits} — S07 L10's own runbook explains why Keycloak was rejected for this course; this drifted from that decision"
+REPO="https://github.com/abohmeed/argocd-class-resources.git"
+PROJ="s07l08-probe"
+NS="s07l08-probe"
+APP="s07l08-app"
+ACCOUNT="s07l08-probe"
+SUBJECT_ROLE="role:s07l08-lead"
+PASSWORD="Throwaway-CI-Only-1!"
+PF_PID=""
+PORT=18208
+
+cleanup() {
+  [ -n "${PF_PID}" ] && kill "${PF_PID}" >/dev/null 2>&1 || true
+  kubectl patch configmap argocd-cm -n argocd --type json \
+    -p "[{\"op\":\"remove\",\"path\":\"/data/accounts.${ACCOUNT}\"}]" >/dev/null 2>&1 || true
+  kubectl patch configmap argocd-rbac-cm -n argocd --type json \
+    -p '[{"op":"remove","path":"/data/policy.csv"}]' >/dev/null 2>&1 || true
+  kubectl delete application "${APP}" -n argocd --wait=false >/dev/null 2>&1 || true
+  kubectl delete appproject "${PROJ}" -n argocd --wait=false >/dev/null 2>&1 || true
+  kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+if ! command -v argocd >/dev/null 2>&1; then
+  _fail "argocd CLI not on PATH — the logs RBAC resource is only enforced behind the real API"
 fi
 
-step "no OIDC client secret committed anywhere looks like a real credential"
-hits="$(grep -rIln --exclude-dir=.git --exclude-dir=test -iE 'client[_-]?secret' "${REPO_ROOT}" 2>/dev/null || true)"
-if [ -z "${hits}" ]; then
-  _pass "no clientSecret/client_secret reference committed yet — nothing to check the shape of"
+step "fence a throwaway project, sync a throwaway app so it has real Pod logs, and a throwaway account with full applications-level RBAC but no logs line"
+cat <<EOF | kubectl apply -f - >/dev/null
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: ${PROJ}, namespace: argocd}
+spec:
+  description: "S07 L08 smoke probe — not the real checkout project."
+  sourceRepos: ["${REPO}"]
+  destinations:
+    - {server: "https://kubernetes.default.svc", namespace: "${NS}"}
+EOF
+kubectl apply -f - <<EOF >/dev/null
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: ${APP}, namespace: argocd}
+spec:
+  project: ${PROJ}
+  source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/manifests}
+  destination: {server: "https://kubernetes.default.svc", namespace: "${NS}"}
+  syncPolicy: {automated: {}, syncOptions: ["CreateNamespace=true"]}
+EOF
+wait_for_sync "${APP}" 180
+
+kubectl patch configmap argocd-cm -n argocd --type merge -p \
+  "{\"data\":{\"accounts.${ACCOUNT}\":\"login\"}}" >/dev/null
+kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
+  "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, create, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete/*, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
+
+step "reach argocd-server and set the account's password"
+kubectl -n argocd port-forward svc/argocd-server "${PORT}:443" >/tmp/s07l08-portforward.log 2>&1 &
+PF_PID=$!
+up="no"
+for _ in $(seq 1 20); do curl -sk "https://localhost:${PORT}/healthz" >/dev/null 2>&1 && { up="yes"; break; }; sleep 1; done
+[ "${up}" = "yes" ] || _fail "argocd-server never answered on the port-forward"
+ADMIN_PW="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 --decode)"
+[ -n "${ADMIN_PW}" ] || _fail "no argocd-initial-admin-secret on this cluster"
+argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
+argocd account update-password --account "${ACCOUNT}" --new-password "${PASSWORD}" \
+  --current-password "${ADMIN_PW}" --grpc-web >/dev/null
+
+step "full applications-level RBAC, no logs line: argocd app logs is refused, not merely empty"
+argocd login "localhost:${PORT}" --insecure --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
+out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)"; rc=$?
+if [ "${rc}" -eq 0 ]; then
+  _fail "argocd app logs succeeded with no logs policy line granted — logs is not actually gated separately from applications"
 else
-  bad=""
-  while IFS= read -r f; do
-    # A real secret is a long, dense base64/hex-looking token. A placeholder is angle-bracketed
-    # or reads like an instruction (contains a space, or starts with < or REPLACE).
-    while IFS= read -r line; do
-      val="$(printf '%s' "${line}" | grep -oiE 'client[_-]?secret["'"'"']?\s*[:=]\s*["'"'"']?[^"'"'"',[:space:]]+' | sed -E 's/.*[:=][[:space:]]*["'"'"']?//')"
-      [ -z "${val}" ] && continue
-      case "${val}" in
-        \<*|REPLACE*|CHANGE*|TODO*|YOUR_*) ;;
-        *) if printf '%s' "${val}" | grep -qE '^[A-Za-z0-9_./+=-]{20,}$'; then bad="${bad}\n  ${f}: ${val}"; fi ;;
-      esac
-    done < <(grep -iE 'client[_-]?secret' "${f}")
-  done <<< "${hits}"
-  if [ -z "${bad}" ]; then
-    _pass "every committed client-secret-looking reference is an obvious placeholder, not a realistic token"
-  else
-    _fail "a client-secret-looking value is NOT an obvious placeholder — this would get the repo's next push rejected by GitHub push protection, or worse, actually leak a credential:${bad}"
-  fi
+  _pass "argocd app logs refused (exit ${rc}) despite full applications-level create/update/delete — logs is a separate RBAC resource"
 fi
 
-step "versions.env: Authentik's version pin (this is a known, currently-open gap — see the runbook's own Preconditions callout)"
-assert_file_contains "test/versions.env" "AUTHENTIK" \
-  "Authentik has a pinned version like every other external tool this course installs (versions.env)"
+step "add the logs/get policy line — the same command now returns real output"
+argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
+kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
+  "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, create, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, logs, get, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
+sleep 5
+argocd login "localhost:${PORT}" --insecure --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
+out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)"; rc=$?
+if [ "${rc}" -eq 0 ]; then
+  _pass "argocd app logs succeeds once the logs/get policy line is added"
+else
+  _fail "argocd app logs still refused after adding the logs/get policy line:\n${out}"
+fi
 
-needs_external "a browser, a live Authentik instance, and a real Dex OIDC handshake" \
-  "verified once by hand instead, on the recording cluster, once the two gaps this runbook flags (the missing AUTHENTIK_VERSION pin and the untested multi-host TLS/HTTPRoute plumbing) are resolved — not yet done as of the runbook's own 'RUNTIME OWED' header"
+smoke_done

@@ -1,30 +1,50 @@
 #!/usr/bin/env bash
-# ACD-187
-# S12 L08 — three independent logs (git history, Argo CD's sync history, the Kubernetes API
-# audit log) correlate into one traceable story: who committed it, when Argo CD synced it, and
-# which service account the API server saw apply it.
+# ACD-180
+# S12 L08 — the ApplicationSet CRD's own annotation blows past kubectl's 262144-byte
+# last-applied-configuration ceiling on a client-side apply, and --server-side --force-conflicts
+# is the fix — not a bigger cluster, not a different flag.
 #
-# The third log is the blocker for running this anywhere but by hand: k3s does not enable API
-# audit logging by default, turning it on needs sudo access to the node's systemd/k3s config and
-# a full k3s restart, and no earlier lesson in this course does that. Flipping it on for a shared
-# CI cluster is the exact non-trivial, ongoing performance cost the runbook itself warns against
-# doing silently. What IS checkable from here: the git half of the correlation, which needs
-# nothing but this checkout's own history.
+# S02 L03 owns first-install diagnosis of the same wall; this lesson is the UPGRADE procedure.
+# This script reproduces both halves against a real cluster: client-side fails with the exact
+# "Too long" message (never confused with an RBAC Forbidden, which has a visibly different
+# shape), and --server-side --force-conflicts succeeds against the identical file.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S12-L08 "git history, Argo CD sync history and the API audit log correlate on the same change"
-tier external
+lesson S12-L08 "client-side apply of the ApplicationSet CRD hits the 262144-byte annotation wall; --server-side --force-conflicts does not"
+tier cluster
 
-step "the repo carries real, attributable git history to correlate against"
-if ! git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  _fail "cannot check git history: ${REPO_ROOT} is not a git checkout here (environment fault, not a defect in the content) — this script expects to run inside the pushed argocd-class-resources checkout, where git history is real"
-fi
-last_commit="$(git -C "${REPO_ROOT}" log -1 --format='%H %an %aI' 2>/dev/null || true)"
-if [ -n "${last_commit}" ]; then
-  _pass "git log resolves a commit with author and timestamp: ${last_commit}"
+install_url="https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.3/manifests/install.yaml"
+tmpfile="$(mktemp)"
+trap 'rm -f "${tmpfile}"' EXIT
+curl -sfL -o "${tmpfile}" "${install_url}" || _fail "could not download the pinned v3.5.3 install manifest"
+
+step "force a genuinely fresh client-side history on the CRD, so the wall is real rather than already-settled"
+kubectl delete crd applicationsets.argoproj.io >/dev/null 2>&1 || true
+kubectl apply -n argocd -f "${tmpfile}" >/dev/null 2>&1 || true
+
+step "client-side apply of the same file fails on the CRD's annotation size, not on RBAC"
+out="$(kubectl apply -n argocd -f "${tmpfile}" 2>&1)" && rc=0 || rc=$?
+if [ "${rc}" -ne 0 ] && printf '%s' "${out}" | grep -q 'Too long'; then
+  _pass "client-side apply fails with the expected 'Too long' annotation-size error"
+elif [ "${rc}" -eq 0 ]; then
+  _fail "client-side apply SUCCEEDED — the CRD's ownership history is already server-side-settled on this cluster; this wall no longer reproduces here"
 else
-  _fail "this is a git checkout, but git log -1 returned nothing — no history to correlate against"
+  _fail "client-side apply failed, but not with the expected 'Too long' message:\n${out}"
 fi
 
-needs_external "a scratch k3s host with Kubernetes API audit logging enabled (sudo, a policy file, a k3s config edit and a restart)" \
-  "verified once by hand instead: an identifiable ConfigMap change was committed, argocd app history showed the matching revision's sync timestamp, and grep against /var/log/k3s-audit.log found the same update entry with user.username naming Argo CD's own application-controller service account — not a human identity"
+step "the same failure looks nothing like an RBAC Forbidden — the two must never be confused"
+forbidden_shape="$(kubectl get pods -n a-namespace-this-user-cannot-see 2>&1 | head -1)"
+if printf '%s' "${forbidden_shape}" | grep -qE 'Forbidden|forbidden'; then
+  _pass "an RBAC failure names a verb and a resource, and never mentions size — visibly different from Step 1's error"
+else
+  _fail "expected an RBAC Forbidden shape from a namespace this account cannot list, got:\n${forbidden_shape}"
+fi
+
+step "--server-side --force-conflicts succeeds on the identical file where client-side just failed"
+if kubectl apply --server-side --force-conflicts -n argocd -f "${tmpfile}" >/dev/null 2>&1; then
+  _pass "server-side apply with --force-conflicts succeeds"
+else
+  _fail "server-side apply with --force-conflicts also failed — this is the fix the entire lesson turns on"
+fi
+
+smoke_done

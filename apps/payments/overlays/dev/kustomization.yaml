@@ -13,4 +13,4 @@ configMapGenerator:
   - name: payments-banner
     behavior: merge
     literals:
-      - banner=payments v1 — dev
+      - "banner=payments v1: dev"

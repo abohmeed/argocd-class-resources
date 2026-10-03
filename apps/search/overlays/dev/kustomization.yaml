@@ -13,4 +13,4 @@ configMapGenerator:
   - name: search-banner
     behavior: merge
     literals:
-      - banner=search v1 — dev
+      - "banner=search v1: dev"
