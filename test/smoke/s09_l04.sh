@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
-# S09 L04 — the CLI convenience (argocd cluster add), and the in-cluster entry the CLI cannot
-# remove.
+# ACD-140
+# S09 L04 — narrowing the default cluster credential via impersonation.
 #
-# Two behavioural claims, both proven only against a real second cluster (prod-us) and a live
-# argocd CLI session: `argocd cluster add` writes exactly the labelled-Secret shape S09 L03
-# hand-authored, and `argocd cluster rm in-cluster` ERRORS rather than no-opping — the docs say
-# the in-cluster entry cannot be removed this way, and the fix is the
-# cluster.inClusterEnabled: "false" key in argocd-cm, not a CLI verb. None of that runs on a
-# single-node CI cluster. What is checkable here is the repo-side invariant this lesson and L03
-# share: no committed manifest hardcodes a cluster address, and the dead cluster2/cluster3 names
-# never come back.
+# The claim: `argocd cluster add`'s default ServiceAccount grants a wide-open ClusterRole on the
+# managed cluster, and Service Account Impersonation narrows the Application's effective identity
+# to a scoped Role — proven live by syncing against the narrow Role, watching it fail on a missing
+# verb, then succeed once the verb is added. This is inherently a two-cluster story (hub + prod-us)
+# and inherently behavioural (a live sync failing and then succeeding), so none of it reproduces
+# on a single-node CI cluster. The repo-side invariant this lesson shares with the rest of S09:
+# no committed manifest hardcodes a cluster address.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S09-L04 "argocd cluster add writes the same Secret shape as a hand-authored one, and cluster rm in-cluster ERRORS rather than no-opping"
+lesson S09-L04 "the default argocd cluster add credential is wide open; impersonation narrows it to a scoped Role"
 tier external
 
 step "repo-side invariant: no hardcoded private/loopback IP in any committed manifest"
@@ -28,16 +27,33 @@ hits="$(grep -rInE '(^|[^0-9])(10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-
 if [ -z "${hits}" ]; then
   _pass "no hardcoded private or loopback IP in any committed manifest"
 else
-  _fail "hardcoded private/loopback IP found — addresses are discovered at merge time (S09 L02), never pasted:\n${hits}"
+  _fail "hardcoded private/loopback IP found:\n${hits}"
 fi
 
-step "repo-side invariant: if platform/argocd-cm.yaml is committed, it disables in-cluster the documented way"
-if [ -f "${REPO_ROOT}/platform/argocd-cm.yaml" ]; then
-  assert_file_contains "platform/argocd-cm.yaml" 'cluster\.inClusterEnabled: *"?false"?' \
-    "platform/argocd-cm.yaml sets cluster.inClusterEnabled: \"false\" — the only documented way to disable the in-cluster entry"
+step "repo-side invariant: any committed narrowed Role for a managed cluster grants no wildcard verb"
+# S09 L05's whole point is narrowing away from the wide-open default ClusterRole argocd
+# cluster add creates. A committed "narrowed" Role that still grants '*' verbs or resources
+# would be the lesson contradicting itself in its own companion repo.
+if [ -d "${REPO_ROOT}/platform/clusters" ]; then
+  hits2="$(grep -rIln 'storefront-deployer\|storefront-prod-us-role' "${REPO_ROOT}/platform/clusters" 2>/dev/null || true)"
+  if [ -n "${hits2}" ]; then
+    bad=""
+    while IFS= read -r f; do
+      [ -z "${f}" ] && continue
+      grep -qE 'verbs: *\[.*"\*".*\]|resources: *\[.*"\*".*\]' "${f}" && bad="${bad}
+  ${f#"${REPO_ROOT}"/}"
+    done <<< "${hits2}"
+    if [ -z "${bad}" ]; then
+      _pass "the committed narrowed Role grants no wildcard verb or resource"
+    else
+      _fail "a narrowed Role still grants a wildcard — that is the default credential this lesson exists to replace:${bad}"
+    fi
+  else
+    _pass "platform/clusters/ exists but the narrowed Role isn't committed yet"
+  fi
 else
-  _pass "platform/argocd-cm.yaml not committed yet — S09 L04 authors it live, from the running cluster's own state"
+  _pass "platform/clusters/ not committed yet — S09 L05 authors the narrowed Role live"
 fi
 
-needs_external "a second cluster (prod-us) and a live argocd CLI session against the hub" \
-  "verified by hand: 'argocd cluster rm in-cluster' returns FATA rpc error: code = NotFound rather than succeeding, and 'cluster.inClusterEnabled: \"false\"' in argocd-cm is what actually removes it from 'argocd cluster list' — this needs a second registered cluster and a real argocd CLI session, neither available on this single k3s CI node"
+needs_external "a second cluster (prod-us) with a real argocd-manager ClusterRoleBinding, and AppProject impersonation configured" \
+  "verified by hand: the default ClusterRoleBinding grants '*' verbs/resources/API groups; a sync under the narrowed Role fails on the missing 'patch' verb (Argo CD's normal apply path patches an existing resource) and succeeds once it's added — this needs a second managed cluster, which this single k3s CI node does not have"

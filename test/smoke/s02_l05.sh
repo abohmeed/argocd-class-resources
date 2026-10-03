@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# S01 L05 — first reconciliation, and the drift `automated` on its own won't undo.
+# ACD-83
+# S02 L05 — first reconciliation, and the drift `automated` on its own won't undo.
 #
 # The lesson's punchline is behavioural, not textual: `automated: {}` (no selfHeal, no prune)
 # makes Argo CD DETECT a hand edit — Sync status flips to OutOfSync — but never REVERT it. If
@@ -15,7 +16,7 @@
 # itself down whether it passes or fails.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S01-L05 "automated (with no selfHeal) detects a manual edit as OutOfSync but does not revert it"
+lesson S02-L05 "automated (with no selfHeal) detects a manual edit as OutOfSync but does not revert it"
 tier cluster
 
 APP="s01l05-probe"

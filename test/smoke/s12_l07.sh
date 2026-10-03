@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# S12 L10 — a stuck PreSync hook is diagnosable by name (a missing image-pull secret), not just
+# ACD-184
+# S12 L07 — a stuck PreSync hook is diagnosable by name (a missing image-pull secret), not just
 # "stuck"; and ignoreDifferences alone does not stop selfHeal reverting a re-applied field away —
 # it needs RespectIgnoreDifferences too, proven against a real, reconciling Application.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S12-L10 "a stuck PreSync hook names its own blocker, and ignoreDifferences alone does not stop selfHeal reverting a flapped field"
+lesson S12-L07 "a stuck PreSync hook names its own blocker, and ignoreDifferences alone does not stop selfHeal reverting a flapped field"
 tier cluster
 
 # This lesson is proven through Argo CD's own API layer, so the CLI needs a session. On a

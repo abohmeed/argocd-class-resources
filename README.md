@@ -55,23 +55,28 @@ the reference you compare against, and the safety net if a take moves faster tha
 ## The test suite, and what green actually means
 
 There is one script per demo lesson under `test/smoke/`, named for its lesson — `s04_l01.sh`.
-Each one defends that lesson's **claim**, not its commands: `s01_l04.sh` asserts the banner does
+Each one defends that lesson's **claim**, not its commands: `s02_l04.sh` asserts the banner does
 *not* change after a ConfigMap edit, because that surprise is the lesson, and it goes red if Argo
 CD ever changes so the surprise stops happening. A script that merely re-ran the lesson's commands
 would pass in exactly the case you most need to catch.
+
+A script is named for its lesson's current position in the course (section and lesson number), and
+its second line names the lesson's key, for example `# ACD-82`, so a renumber can never silently
+move a lesson out from under its test. Scripts for lessons cut from the course live in
+`test/smoke/retired/`; the runner does not pick them up.
 
 Each script declares a tier, and the runner reports a census rather than a verdict:
 
 ```bash
 ./test/smoke/run_all.sh repo      # needs only a checkout — runs on every PR
-./test/smoke/run_all.sh cluster   # needs k3s + Argo CD — nightly, and on manifest changes
+./test/smoke/run_all.sh cluster   # needs k3s + Argo CD: nightly, and on demand
 ```
 
 | Tier | Needs | When it runs |
 |---|---|---|
 | `repo` | a checkout | every pull request |
-| `cluster` | k3s + Argo CD | nightly, and on any manifest change |
-| `external` | a browser, a second repository, a registry, or several VMs | **never in CI** |
+| `cluster` | k3s + Argo CD v3.5.3, the course pin | nightly, and on demand (`workflow_dispatch`) |
+| `external` | a browser, a second repository, a registry, several VMs, or something the CI runner cannot provide | **never in CI** |
 
 That last row is the one that matters. A handful of lessons genuinely cannot run in CI — they sign
 in through an identity provider, open a pull request, push to a registry, or build four Multipass

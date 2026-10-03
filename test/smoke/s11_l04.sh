@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# S11 L05 — wiring Argo CD Image Updater closes the registry-to-cluster gap.
+# ACD-155
+# S11 L04 — wiring Argo CD Image Updater closes the registry-to-cluster gap.
 #
 # The lesson's demo lives almost entirely outside this repo: it installs a separate
 # argoproj-labs controller, points it at ghcr.io/<owner>/storefront (a registry this repo
@@ -12,7 +13,7 @@
 # Image Updater is even involved.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S11-L05 "Image Updater's write-back only closes the loop if storefront-dev is on automated selfHeal"
+lesson S11-L04 "Image Updater's write-back only closes the loop if storefront-dev is on automated selfHeal"
 tier external
 
 step "the storefront-dev Application this lesson wires Image Updater against actually exists"

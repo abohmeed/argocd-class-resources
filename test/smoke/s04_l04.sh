@@ -1,71 +1,44 @@
 #!/usr/bin/env bash
-# S04 L04 — Argo CD renders a Helm chart itself; it never runs `helm install`.
+# ACD-115
+# S04 L04 — Off the Bitnami pin loss, onto OCI; the oci:// prefix flips depending on whether
+# Argo CD is reading a Helm chart or a plain artifact.
 #
-# The lesson's surprise ("helm list shows nothing") is not really about the `helm list` command
-# — it's about WHY. Argo CD's repo-server calls Helm as a library to inflate the chart (the
-# equivalent of `helm template`), then applies the resulting manifests itself, so it never
-# creates the release object (a Secret labelled owner=helm) that `helm list` actually reads
-# from. Asserting the command's raw output is fragile — a namespace someone `helm install`ed
-# into out of band can make `helm list` non-empty for reasons that have nothing to do with this
-# lesson. Asserting the REASON — no release object exists even though the Deployment is real
-# and healthy — is what actually fails if Argo CD's Helm integration ever changed to behave
-# like the CLI.
+# Two of this lesson's three claims need a live, credentialed OCI registry this CI does not
+# have (the live state of Bitnami's registry, and a real push/pull round-trip
+# against ghcr.io/northwind). Those are declared, not faked — see needs_external below. What IS
+# checkable from the repo alone, and matters just as much: the Bitnami pin loss is never "fixed"
+# by hard-coding a private mirror (it is the teaching point, not a bug), and the fictional
+# ghcr.io/northwind org this course's prose uses for illustration never becomes a real pull
+# target in a committed manifest — if it ever did, a student's `apply` would 404 on camera.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S04-L04 "Argo CD renders a Helm chart without ever creating a Helm release object, which is why helm list sees nothing"
-tier cluster
+lesson S04-L04 "Bitnami's charts still install but their versioned images are gone, so the pin dies; a Helm-over-OCI repoURL drops oci://, a plain OCI artifact keeps it"
+tier external
 
-APP="s04l04-storefront-helm"
-NS="s04l04-storefront-helm"
-REPO="https://github.com/abohmeed/argocd-class-resources.git"
-
-cleanup() {
-  kubectl delete application "${APP}" -n argocd --wait=true --timeout=90s >/dev/null 2>&1 || true
-  kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
-
-step "the chart this lesson builds is actually committed"
-assert_exists_file "charts/storefront/Chart.yaml"
-assert_exists_file "charts/storefront/values.yaml"
-
-step "sync a Helm-sourced Application through Argo CD"
-cat <<APPEOF | kubectl apply -f - >/dev/null
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata: {name: ${APP}, namespace: argocd}
-spec:
-  project: default
-  source: {repoURL: "${REPO}", targetRevision: main, path: charts/storefront}
-  destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
-  syncPolicy:
-    automated: {}
-    syncOptions: ["CreateNamespace=true"]
-APPEOF
-wait_for_sync "${APP}" 240
-wait_for_rollout deployment/storefront "${NS}"
-
-step "the pods are real and healthy — this is not a surprise about something that never deployed"
-running="$(kubectl get pods -n "${NS}" -l app.kubernetes.io/name=storefront \
-  --field-selector=status.phase=Running -o name 2>/dev/null | wc -l | tr -d ' ')"
-[ "${running}" -gt 0 ] && _pass "${running} pod(s) Running in ${NS}" \
-  || _fail "no Running storefront pod in ${NS} — the chart never actually deployed"
-
-step "no Helm release object exists in the namespace — Argo CD never ran helm install"
-release_objects="$(kubectl get secret -n "${NS}" -l owner=helm -o name 2>/dev/null | wc -l | tr -d ' ')"
-if [ "${release_objects}" -eq 0 ]; then
-  _pass "no owner=helm release Secret in ${NS} — this is WHY helm list sees nothing, not a coincidence"
+step "no working Bitnami mirror or workaround is committed anywhere in the repo"
+hits="$(grep -rIl --exclude-dir=.git --exclude-dir=test \
+  -e 'charts\.bitnami\.com' -e 'bitnami/charts' "${REPO_ROOT}" 2>/dev/null || true)"
+if [ -z "${hits}" ]; then
+  _pass "no Bitnami chart repository referenced anywhere — the dead pin is never routed around"
 else
-  _fail "a Helm release object exists in ${NS} — Argo CD's Helm source is now creating releases the way the CLI does, and this lesson's whole surprise is gone"
+  _fail "a Bitnami reference is committed: ${hits} — S04 L06's whole point is that this is NOT worked around"
 fi
 
-step "helm list itself confirms the same thing, for the on-camera moment"
-if command -v helm >/dev/null 2>&1; then
-  out="$(helm list -n "${NS}" --short 2>/dev/null || true)"
-  [ -z "${out}" ] && _pass "helm list -n ${NS} is empty" \
-    || _fail "helm list -n ${NS} unexpectedly shows a release: ${out}"
+step "the fictional ghcr.io/northwind org never becomes a real pull target"
+assert_exists_dir "apps"
+assert_exists_dir "applicationsets"
+assert_exists_dir "bootstrap"
+hits="$(grep -rIln --exclude-dir=.git --exclude-dir=test -e 'ghcr\.io/northwind' \
+  "${REPO_ROOT}/apps" "${REPO_ROOT}/applicationsets" "${REPO_ROOT}/bootstrap" 2>/dev/null || true)"
+if [ -z "${hits}" ]; then
+  _pass "ghcr.io/northwind appears nowhere as a committed image/repoURL — it stays prose-only, as it must"
 else
-  _fail "helm binary not on PATH — this cluster-tier lesson needs it (see runbook Preconditions)"
+  _fail "ghcr.io/northwind is referenced in a committed manifest: ${hits} — that org is fictional and nothing may pull from it"
 fi
 
-smoke_done
+step "the image tag this course actually pulls is pinned to the real, existing tag"
+assert_file_contains "test/versions.env" 'HTTP_ECHO_IMAGE="hashicorp/http-echo:1\.0"' \
+  "the pinned image is hashicorp/http-echo:1.0 — 1.4.2 is a 404 and must stay prose-only"
+
+needs_external "write access to ghcr.io/northwind (a real, producer-owned OCI registry) and a live charts.bitnami.com probe" \
+  "MEASURED 2026-09-20, and it corrects this repo's earlier record: charts.bitnami.com/bitnami is NOT 403. It 302-redirects to repo.broadcom.com/bitnami-files and serves a 26 MB index with 144 charts; individual .tgz files download 200. What actually moved is the IMAGES — docker.io/bitnami/postgresql:16.4.0 is 404 while :latest is 200, so the free tier keeps only a floating tag. The break a student hits is therefore a green sync followed by ImagePullBackOff on a version that no longer exists, and the only way to make it pull is :latest, which this course bans. CI must not depend on reaching any of it either way, since that state can move again between here and the take: re-probe before recording. The OCI push/pull round-trip also needs the producer's registry credentials, which this CI does not hold"

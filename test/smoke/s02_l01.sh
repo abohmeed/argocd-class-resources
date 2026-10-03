@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ACD-86
 # S02 L01 — a real control plane, and the root-owned kubeconfig fixed the RIGHT way.
 #
 # The lesson's specific, repeatable claim is not "k3s installs" (CI's own "Install k3s" step

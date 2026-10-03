@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ACD-84
 # S07 L01 — the blast radius of one Argo CD instance.
 #
 # The lesson's claim is not "storefront-dev moves namespace" — it's that the built-in `default`

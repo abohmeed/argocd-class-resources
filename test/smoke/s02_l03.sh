@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ACD-93
 # S02 L03 — the 262144-byte wall is a REAL client-side-apply failure, and --server-side
 # --force-conflicts is what actually clears it.
 #
@@ -24,6 +25,19 @@ tier cluster
 
 BASELINE="https://raw.githubusercontent.com/argoproj/argo-cd/v3.2.12/manifests/install.yaml"
 TARGET="https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_PIN}/manifests/install.yaml"
+
+# Whatever happens below, leave Argo CD ${ARGOCD_PIN} installed server-side and rolled out, so a
+# failure here cannot strand the rest of the suite on the v3.2.12 baseline (run 37112036142: every
+# later `argocd --core` test failed after this script stopped mid-way). Idempotent on success.
+restore_pin() {
+  kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+  kubectl apply --server-side --force-conflicts -n argocd -f "${TARGET}" >/dev/null 2>&1 || true
+  for d in $(kubectl -n argocd get deploy -o name 2>/dev/null); do
+    kubectl -n argocd rollout status "$d" --timeout=300s >/dev/null 2>&1 || true
+  done
+  kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=300s >/dev/null 2>&1 || true
+}
+trap restore_pin EXIT
 
 step "start from a clean slate — delete any prior 'argocd' namespace"
 kubectl delete namespace argocd --wait=true --timeout=120s >/dev/null 2>&1 || true

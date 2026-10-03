@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ACD-107
 # S03 L02 — reconciliation is a timer, and refresh/hard-refresh short-circuit it.
 #
 # The lesson's claim is behavioural: drift is noticed on its own within the shipped

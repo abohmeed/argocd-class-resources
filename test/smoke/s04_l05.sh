@@ -1,74 +1,99 @@
 #!/usr/bin/env bash
-# S04 L05 — Helm 4 renames --atomic/--force; the old names still work, they just warn.
+# ACD-122
+# S04 L05 — A single source can't read valueFiles from another repository; spec.sources can.
 #
-# The lesson's claim is specific and falsifiable: on Helm 4, `--atomic` and `--force` still
-# WORK when typed — Helm marks them deprecated via cobra's MarkDeprecated, which prints a
-# warning and leaves the flag pointed at the renamed flag's own code path, it does not remove
-# it. The one documented exception is versions 4.0.0-4.1.1 (upstream issue 31900), where
-# `--atomic` actually errors outright until 4.2.0. This script builds a disposable chart and
-# release, runs the old flags, and reads stderr for the rename warning rather than assuming a
-# fixed exit code, since the regression window means "did it exit 0" is not itself the claim.
-# It also confirms `helm repo` carries no deprecation notice, since that claim is just as
-# central and just as easy to get backwards.
+# The lesson's claim is a hard failure/success pair: `helm.valueFiles` on a single `source`
+# block can only resolve paths inside THAT source's own repoURL, so pointing it at a file that
+# lives in a genuinely different repository fails at sync — a missing-file error, not a
+# permissions error. `spec.sources`, with a named `ref:` and a `$values/...` valueFiles entry,
+# is what actually reaches across the repository boundary. This drives both attempts against
+# the two real, distinct, public companion repositories this course uses for the chart and the
+# values (argocd-class-resources and argocd-class-values — confirmed as two separate, reachable
+# GitHub repositories, not the same URL twice).
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S04-L05 "Helm 4's renamed --atomic/--force warn and keep working; they do not error outside the 4.0.0-4.1.1 regression, and helm repo is not deprecated"
+lesson S04-L05 "a single source cannot read valueFiles from a different repository; spec.sources with ref:/\$values can"
 tier cluster
 
-NS="s04l05-helm-cli-demo"
-RELEASE="s04l05-storefront"
-CHART_DIR="$(mktemp -d)"
+# This lesson is proven through Argo CD's own API layer, so the CLI needs a session. On a
+# bare CI cluster there is no gateway and no login; without this the CLI dies with
+# "Argo CD server address unspecified", which reads like a broken script rather than an
+# unconfigured environment.
+argocd_cli_ready
+
+APP="s04l07-storefront-multisource"
+NS="s04l07-storefront-multisource"
+CHART_REPO="https://github.com/abohmeed/argocd-class-resources.git"
+VALUES_REPO="https://github.com/abohmeed/argocd-class-values.git"
 
 cleanup() {
-  helm uninstall "${RELEASE}" -n "${NS}" >/dev/null 2>&1 || true
+  kubectl delete application "${APP}" -n argocd --wait=true --timeout=90s >/dev/null 2>&1 || true
   kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
-  rm -rf "${CHART_DIR}"
 }
 trap cleanup EXIT
 
-step "Helm 4 is actually what's installed"
-ver="$(helm version --short 2>/dev/null || true)"
-case "${ver}" in
-  v4.*) _pass "helm reports ${ver}" ;;
-  *) _fail "helm reports '${ver}', not v4.x — this lesson's whole claim is Helm-4-specific" ;;
-esac
-
-step "build a disposable release from S04 L04's committed chart"
-assert_exists_dir "charts/storefront"
-assert_exists_file "charts/storefront/Chart.yaml"
-mkdir -p "${CHART_DIR}/templates"
-cp "${REPO_ROOT}/charts/storefront/Chart.yaml" "${CHART_DIR}/Chart.yaml"
-cp "${REPO_ROOT}/charts/storefront/values.yaml" "${CHART_DIR}/values.yaml"
-cp "${REPO_ROOT}/charts/storefront/templates/"*.yaml "${CHART_DIR}/templates/"
-kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-helm install "${RELEASE}" "${CHART_DIR}" -n "${NS}" >/dev/null
-
-step "the old --atomic still runs, warning that it was renamed to --rollback-on-failure"
-out="$(helm upgrade "${RELEASE}" "${CHART_DIR}" -n "${NS}" --atomic --force 2>&1)" && rc=0 || rc=$?
-if printf '%s' "${out}" | grep -qiE 'rollback-on-failure'; then
-  _pass "--atomic prints its rename warning (pointing at --rollback-on-failure)"
-elif [ "${rc}" -ne 0 ] && printf '%s' "${out}" | grep -qiE 'unknown flag.*atomic'; then
-  _pass "--atomic errors outright — this is the documented 4.0.0-4.1.1 regression (upstream #31900), not a defect in the lesson"
+step "a single source cannot resolve a valueFiles path that lives in a different repository"
+cat <<APPEOF | kubectl apply -f - >/dev/null
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: ${APP}, namespace: argocd}
+spec:
+  project: default
+  source:
+    repoURL: "${CHART_REPO}"
+    targetRevision: main
+    path: charts/storefront
+    helm:
+      valueFiles: ["values/storefront/values-prod.yaml"]
+  destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
+  syncPolicy: {}
+APPEOF
+out="$(argocd app sync "${APP}" 2>&1)" && rc=0 || rc=$?
+if [ "${rc}" -ne 0 ] && printf '%s' "${out}" | grep -qiE 'values-prod\.yaml|no such file|not found'; then
+  _pass "single-source sync fails naming the missing values file, not a permissions error"
 else
-  _fail "--atomic neither warned about its rename nor hit the known regression — Helm's deprecation behavior changed:\n${out}"
+  _fail "single-source sync did not fail the way the lesson claims (rc=${rc}):\n${out}"
+fi
+kubectl delete application "${APP}" -n argocd --wait=true --timeout=90s >/dev/null 2>&1 || true
+
+step "spec.sources with ref:/\$values reaches across the repository boundary and actually renders"
+cat <<APPEOF | kubectl apply -f - >/dev/null
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: ${APP}, namespace: argocd}
+spec:
+  project: default
+  destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
+  sources:
+    - repoURL: "${CHART_REPO}"
+      targetRevision: main
+      path: charts/storefront
+      helm:
+        valueFiles: ["\$values/values/storefront/values-prod.yaml"]
+    - repoURL: "${VALUES_REPO}"
+      targetRevision: HEAD
+      ref: values
+  syncPolicy:
+    automated: {}
+    syncOptions: ["CreateNamespace=true"]
+APPEOF
+wait_for_sync "${APP}" 240
+
+step "the value that rendered came from the values repository, not the chart's own default"
+rendered="$(argocd app manifests "${APP}" 2>/dev/null | grep -A1 'replicas:' | head -2 || true)"
+if printf '%s' "${rendered}" | grep -qE 'replicas: [2-9]'; then
+  _pass "rendered replicas came from values-prod.yaml, not the chart's own default of 1"
+else
+  _fail "rendered manifest still shows the chart's own default replica count — the second source's values file was never actually read:\n${rendered}"
 fi
 
-step "the renamed flags apply clean, with no deprecation warning"
-out="$(helm upgrade "${RELEASE}" "${CHART_DIR}" -n "${NS}" --rollback-on-failure --force-replace 2>&1)" && rc=0 || rc=$?
-if [ "${rc}" -eq 0 ] && ! printf '%s' "${out}" | grep -qiE 'deprecat'; then
-  _pass "--rollback-on-failure and --force-replace apply with no deprecation warning"
+step "the two sources stay independent — S04 L04's chart-only Application is untouched"
+if argocd app get storefront-helm >/dev/null 2>&1; then
+  diff_out="$(argocd app diff storefront-helm 2>&1 || true)"
+  [ -z "${diff_out}" ] && _pass "storefront-helm (S04 L04) shows no diff — the values-repo edit did not leak into the chart source" \
+    || _fail "storefront-helm shows an unexpected diff after this lesson's edits:\n${diff_out}"
 else
-  _fail "the renamed flags did not apply cleanly (rc=${rc}):\n${out}"
-fi
-
-step "helm repo is not deprecated — only the OCI-adjacent story changed, not this command"
-if timeout 15 helm repo add s04l05-example https://example.com/charts >/dev/null 2>&1; then
-  helm repo remove s04l05-example >/dev/null 2>&1 || true
-fi
-if helm repo --help 2>&1 | grep -qi 'deprecat'; then
-  _fail "helm repo now reports itself as deprecated — the lesson's 'still fully supported' claim no longer holds"
-else
-  _pass "helm repo carries no deprecation notice"
+  _pass "storefront-helm not present in this run — independence check skipped, nothing to leak into"
 fi
 
 smoke_done

@@ -19,26 +19,48 @@ SHARE="$(cd "${ROOT}/.." 2>/dev/null && pwd)"
 fail=0
 
 # --- 1. coverage: every demo lesson has a script ---------------------------------------------
-if [ -d "${SHARE}/_scripts/draft" ] && [ -d "${SHARE}/_visuals" ]; then
-  missing=""
-  for f in "${SHARE}"/_scripts/draft/*.script.md; do
-    [ -e "$f" ] || continue
-    id="$(basename "$f" .script.md)"                       # SNN-LMM
-    # A lesson with a visuals spec is a LECTURE — the screen is its visual, and it gets no script.
-    [ -e "${SHARE}/_visuals/${id}.visuals.yaml" ] && continue
-    sec="$(printf '%s' "$id" | cut -d- -f1 | tr '[:upper:]' '[:lower:]')"
-    les="$(printf '%s' "$id" | cut -d- -f2 | tr '[:upper:]' '[:lower:]')"
-    [ -e "${ROOT}/test/smoke/${sec}_${les}.sh" ] || missing="${missing} ${id}"
-  done
+# Since 2026-10-03 (D-329) lesson folders on the share are named by TITLE, and the key map
+# _tools/lessons.tsv (ACD key <TAB> "NN - Section/NN - Lesson") is the source of truth for which
+# lesson sits where. A lesson folder holding Do.md (a runbook) and no visuals.yaml is a DEMO and
+# owes a smoke script named for its position, sNN_lMM.sh, whose second line names the same key
+# ("# ACD-n"). Checking the key, not just the file name, is what catches a renumber that moved
+# a lesson out from under its script.
+# Point ACD_SHARE at the course share when this checkout does not sit inside it.
+SHARE="${ACD_SHARE:-${SHARE}}"
+MAP="${SHARE}/_tools/lessons.tsv"
+if [ -f "${MAP}" ]; then
+  missing=""; wrongkey=""; demos=0
+  while IFS=$'\t' read -r key folder; do
+    case "${key}" in ''|'#'*) continue ;; esac
+    dir="${SHARE}/${folder}"
+    [ -f "${dir}/Do.md" ] || continue
+    [ -e "${dir}/visuals.yaml" ] && continue
+    demos=$((demos+1))
+    sec="${folder%%/*}"; sec="${sec%% *}"                 # "02"
+    les="${folder#*/}";  les="${les%% *}"                 # "04"
+    s="${ROOT}/test/smoke/s${sec}_l${les}.sh"
+    if [ ! -e "${s}" ]; then
+      missing="${missing} ${key}(s${sec}_l${les})"
+    elif [ "$(sed -n 2p "${s}")" != "# ${key}" ]; then
+      wrongkey="${wrongkey} s${sec}_l${les}.sh(expected ${key}, has '$(sed -n 2p "${s}")')"
+    fi
+  done < "${MAP}"
+  if [ "${demos}" -eq 0 ]; then
+    echo "FAIL coverage read ${MAP} but found no demo lesson folders; the check ran on nothing" >&2
+    fail=1
+  fi
   if [ -n "$missing" ]; then
     echo "FAIL demo lessons with no smoke script:${missing}" >&2
     fail=1
-  else
-    echo "ok   every demo lesson has a smoke script"
   fi
+  if [ -n "$wrongkey" ]; then
+    echo "FAIL smoke scripts whose key does not match the lesson at their position:${wrongkey}" >&2
+    fail=1
+  fi
+  [ -z "${missing}${wrongkey}" ] && [ "${demos}" -gt 0 ] && echo "ok   every one of ${demos} demo lessons has a smoke script carrying its key"
 else
-  echo "SKIP coverage — the course share is not mounted beside this repo, so the lesson list" >&2
-  echo "     cannot be read. This is NOT a pass: run this check from the share to verify coverage." >&2
+  echo "SKIP coverage: the course share's _tools/lessons.tsv is not readable (set ACD_SHARE), so the" >&2
+  echo "     lesson list cannot be read. This is NOT a pass: run this check with the share to verify coverage." >&2
 fi
 
 # --- 2. every per-lesson script declares its lesson and tier ---------------------------------

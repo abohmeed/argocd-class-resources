@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# S05 L06 — when the sealing key is gone: backup, rotation and disaster recovery.
+# ACD-109
+# S05 L05 — when the sealing key is gone: backup, rotation and disaster recovery.
 #
 # The lesson's actual demonstration destroys and rebuilds the lab's ONLY cluster host (Proxmox VM
 # 130, `ssh pve 'qm destroy 130 --purge'`) to prove a rebuilt cluster's fresh Sealed Secrets
@@ -10,7 +11,7 @@
 # repo-side facts that make the demo possible and honest, then declares the rest.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S05-L06 "a Sealed Secrets key backup, taken before disaster, is the only thing that survives a rebuilt controller"
+lesson S05-L05 "a Sealed Secrets key backup, taken before disaster, is the only thing that survives a rebuilt controller"
 tier external
 
 # The lab-rebuild tooling this demo depends on is instructor-only and lives on the course share, not in

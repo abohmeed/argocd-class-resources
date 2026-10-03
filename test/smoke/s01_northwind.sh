@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S01 L04 + L05 — build Northwind from empty, then hand it to Argo CD.
+# S02 L04 + L05 (ACD-82, ACD-83): build Northwind from empty, then hand it to Argo CD.
 #
 # This script IS the lesson's commands. If the lesson changes, this changes with it in the same PR;
 # CI diffs the two. That is the mechanism that makes repo drift structurally impossible.
@@ -7,7 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 NS="storefront-dev"
 
-step "S01 L04 — apply the overlay by hand, with no Argo CD in the loop"
+step "S02 L04 (ACD-82): apply the overlay by hand, with no Argo CD in the loop"
 kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -k "${REPO_ROOT}/apps/storefront/overlays/dev"
 wait_for_rollout deployment/storefront "${NS}"
@@ -29,7 +29,7 @@ banner() {
   printf '%s' "${out}"
 }
 
-step "S01 L04 — the banner is served from an env var, so a ConfigMap edit alone does NOT change it"
+step "S02 L04 (ACD-82): the banner is served from an env var, so a ConfigMap edit alone does NOT change it"
 before="$(banner)"
 [ -n "${before}" ] && _pass "banner served: ${before}" || _fail "banner not served"
 
@@ -45,5 +45,5 @@ else
 fi
 
 step "cleanup"
-kubectl delete namespace "${NS}" --wait=true --timeout=120s >/dev/null 2>&1 || true  # wait: s01_l05 next syncs the same overlay into this namespace
+kubectl delete namespace "${NS}" --wait=true --timeout=120s >/dev/null 2>&1 || true  # wait: s02_l05 next syncs the same overlay into this namespace
 printf '\n\033[32ms01 passed\033[0m\n'

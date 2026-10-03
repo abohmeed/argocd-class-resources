@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# S14 L05 — part one: a Rollout's canary analysis step that names a typo'd AnalysisTemplate
+# ACD-181
+# S13 L04 — part one: a Rollout's canary analysis step that names a typo'd AnalysisTemplate
 # HANGS (never fails, never promotes), and fixing the reference lets a real HTTP check pass or
 # fail the canary on its own.
 #
@@ -10,7 +11,7 @@
 # declares part two, matching S12 L06's own precedent.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S14-L05 "a canary's analysis step hangs on a typo'd template name and never silently passes"
+lesson S13-L04 "a canary's analysis step hangs on a typo'd template name and never silently passes"
 tier cluster
 
 # This lesson is proven through Argo CD's own API layer, so the CLI needs a session. On a

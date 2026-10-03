@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# S11 L03 — a CI pipeline that gates the image push on its own tests.
+# ACD-141
+# S11 L02 — a CI pipeline that gates the image push on its own tests.
 #
 # The lesson runs in GitHub Actions against the app repository, breaks a test, and shows the push
 # not happening. None of that can run inside this repo's CI: it needs a second repository, a
@@ -7,7 +8,7 @@
 # DECLARES the rest rather than returning a green it has not earned.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S11-L03 "the image push depends on the tests, so a red test ships nothing"
+lesson S11-L02 "the image push depends on the tests, so a red test ships nothing"
 tier external
 
 step "repo-side invariant: this repo must NOT contain the application's source"

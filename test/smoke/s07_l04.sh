@@ -1,100 +1,109 @@
 #!/usr/bin/env bash
-# S07 L04 — sync windows: when a project may not deploy at all.
+# ACD-101
+# S07 L04 — project roles and tokens: automation that isn't cluster-admin.
 #
-# The claim is that a deny window blocks EVERY sync attempt against the project while it is open —
-# automated or manual, no override flag exists on a sync command — and that the block lifts the
-# moment the window closes. A single "it didn't sync" observation can't tell a blocked sync apart
-# from a slow one, so this runs it as a before/after: create the Application with the deny window
-# ALREADY open and confirm it never lands, then remove the window and confirm the identical
-# Application lands shortly after. The window here uses `schedule: "* * * * *"` (always open) —
-# the runbook's own documented workaround for recording outside the real Friday freeze — so this
-# reproduces reliably regardless of when CI runs, the same reason the runbook gives for it.
+# The claim: a project role token granted exactly one action on one project (`sync` on `checkout`)
+# works for that one thing, in that one project, and is denied everywhere else — including a
+# different project's app, which the token's role never named at all.
 #
-# Built with `kubectl apply` against the AppProject CRD directly (the same shape as
-# bootstrap/edge-restricted-project.yaml's syncWindows, already committed in this repo) rather than
-# `argocd proj windows add` — no CLI login needed, and it is the same object either way.
+# This lesson tests Argo CD's OWN internal RBAC (policy evaluated by argocd-server against a
+# token), which only fires through the real API — a kubectl-only test would bypass it entirely.
+# The runbook logs in against `argocd.local`, the producer's TLS gateway from S02 L06; a bare CI
+# cluster (see test/smoke/s02_control_plane.sh) never builds that gateway, so this port-forwards
+# straight to the argocd-server Service instead. Same RBAC evaluation, no gateway dependency.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S07-L04 "a deny sync window blocks every sync attempt against the project, automated or manual, with no override — and lifts the moment it closes"
+lesson S07-L04 "a project role token scoped to one action on one project works there and is denied everywhere else, including a different project's app"
 tier cluster
 
-# This lesson is proven through Argo CD's own API layer, so the CLI needs a session. On a
-# bare CI cluster there is no gateway and no login; without this the CLI dies with
-# "Argo CD server address unspecified", which reads like a broken script rather than an
-# unconfigured environment.
-argocd_cli_ready
-
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
-PROJ="s07l04-probe"
-NS="s07l04-probe"
-APP="s07l04-probe"
+PROJ="s07l05-probe"
+NS="s07l05-probe"
+NS_OUT="s07l05-outscope"
+APP_IN="s07l05-inscope"
+APP_OUT="s07l05-outscope"
+ROLE="ci-sync-probe"
+PF_PID=""
+PORT=18205
 
 cleanup() {
-  kubectl delete application "${APP}" -n argocd --wait=false >/dev/null 2>&1 || true
+  [ -n "${PF_PID}" ] && kill "${PF_PID}" >/dev/null 2>&1 || true
+  kubectl delete application "${APP_IN}" "${APP_OUT}" -n argocd --wait=false >/dev/null 2>&1 || true
   kubectl delete appproject "${PROJ}" -n argocd --wait=false >/dev/null 2>&1 || true
-  kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
+  kubectl delete namespace "${NS}" "${NS_OUT}" --wait=false >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
-step "fence a throwaway project with an always-open deny window already in place"
+if ! command -v argocd >/dev/null 2>&1; then
+  _fail "argocd CLI not on PATH — project-role tokens and their enforcement only exist behind the real API, not kubectl"
+fi
+
+step "fence a throwaway project, and register one in-scope app and one out-of-scope app (different project)"
 cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata: {name: ${PROJ}, namespace: argocd}
 spec:
-  description: "S07 L04 smoke probe — not the real checkout project."
+  description: "S07 L05 smoke probe — not the real checkout project."
   sourceRepos: ["${REPO}"]
   destinations:
     - {server: "https://kubernetes.default.svc", namespace: "${NS}"}
-  syncWindows:
-    - kind: deny
-      schedule: "* * * * *"
-      duration: 1h
-      applications: ["*"]
 EOF
-
-step "register the Application while the deny window is already open"
-cat <<EOF | kubectl apply -f - >/dev/null
+kubectl apply -f - <<EOF >/dev/null
 apiVersion: argoproj.io/v1alpha1
 kind: Application
-metadata: {name: ${APP}, namespace: argocd}
+metadata: {name: ${APP_IN}, namespace: argocd}
 spec:
   project: ${PROJ}
   source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/manifests}
   destination: {server: "https://kubernetes.default.svc", namespace: "${NS}"}
-  syncPolicy:
-    automated: {}
-    syncOptions: ["CreateNamespace=true"]
+  syncPolicy: {syncOptions: ["CreateNamespace=true"]}
+EOF
+kubectl apply -f - <<EOF >/dev/null
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: ${APP_OUT}, namespace: argocd}
+spec:
+  project: default
+  source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/manifests}
+  destination: {server: "https://kubernetes.default.svc", namespace: "${NS_OUT}"}
+  syncPolicy: {syncOptions: ["CreateNamespace=true"]}
 EOF
 
-step "45 seconds is long enough for an unblocked sync elsewhere in this suite (S07 L01/L02) to land — this one must not"
-sleep 45
-if kubectl get deployment -n "${NS}" -o name 2>/dev/null | grep -q .; then
-  _fail "the Deployment landed in ${NS} while the deny window was open — automated sync bypassed the window"
+step "reach argocd-server directly (no producer TLS gateway on a bare CI cluster)"
+kubectl -n argocd port-forward svc/argocd-server "${PORT}:443" >/tmp/s07l05-portforward.log 2>&1 &
+PF_PID=$!
+up="no"
+for _ in $(seq 1 20); do
+  curl -sk "https://localhost:${PORT}/healthz" >/dev/null 2>&1 && { up="yes"; break; }
+  sleep 1
+done
+[ "${up}" = "yes" ] || _fail "argocd-server never answered on the port-forward — cannot test RBAC without the real API"
+
+ADMIN_PW="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 --decode)"
+[ -n "${ADMIN_PW}" ] || _fail "no argocd-initial-admin-secret on this cluster — cannot obtain admin credentials"
+argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
+_pass "logged in as admin over the port-forward"
+
+step "create an empty role, grant it exactly one action, and issue a token"
+argocd proj role create "${PROJ}" "${ROLE}" --grpc-web >/dev/null
+argocd proj role add-policy "${PROJ}" "${ROLE}" -a sync -o '*' --grpc-web >/dev/null
+TOKEN="$(argocd proj role create-token "${PROJ}" "${ROLE}" --grpc-web 2>/dev/null | tail -1 | tr -d '[:space:]')"
+[ -n "${TOKEN}" ] || _fail "no token came back from 'argocd proj role create-token'"
+_pass "role ${ROLE} created with one policy (sync, *) and a token issued"
+
+step "the token syncs the in-scope app"
+if argocd app sync "${APP_IN}" --grpc-web --auth-token "${TOKEN}" >/dev/null 2>&1; then
+  _pass "token synced ${APP_IN}, inside its own project — exactly what the one policy line grants"
 else
-  _pass "no Deployment in ${NS} while the deny window is open — automated sync did not bypass it"
+  _fail "the token could not sync ${APP_IN}, which its own role's sync/* policy should cover"
 fi
 
-step "a manual sync attempt during the same window is refused too — no flag exists that overrides a deny window"
-argocd_cli_present="no"
-command -v argocd >/dev/null 2>&1 && argocd_cli_present="yes"
-if [ "${argocd_cli_present}" = "yes" ]; then
-  if argocd app sync "${APP}" --grpc-web >/dev/null 2>&1; then
-    _fail "argocd app sync succeeded during the deny window — a manual attempt should be refused exactly like the automated one"
-  else
-    _pass "manual 'argocd app sync' refused during the deny window (no override flag exists on the command)"
-  fi
+step "the SAME token is denied on an app in a different project"
+if argocd app sync "${APP_OUT}" --grpc-web --auth-token "${TOKEN}" >/dev/null 2>&1; then
+  _fail "the ${PROJ}-scoped token synced ${APP_OUT}, which belongs to a different project — the role has no policy line naming it"
 else
-  _pass "argocd CLI not present — skipping the manual-sync half; the automated-sync check above already covers the controller-level enforcement this lesson depends on"
-fi
-
-step "remove the window, and the identical Application lands"
-kubectl patch appproject "${PROJ}" -n argocd --type merge -p '{"spec":{"syncWindows":null}}' >/dev/null
-wait_for_sync "${APP}" 180
-if kubectl get deployment -n "${NS}" -o name 2>/dev/null | grep -q .; then
-  _pass "Deployment landed once the deny window was removed — confirms the earlier absence was the window, not a broken Application"
-else
-  _fail "Deployment still never landed after removing the deny window — something other than the window is broken, and the earlier absence check is not trustworthy evidence of the window's effect"
+  _pass "token denied on ${APP_OUT} — the role's reach stops at its own project, exactly as the lesson claims"
 fi
 
 smoke_done

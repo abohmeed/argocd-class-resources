@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# S09 L09 — scaling the repo-server and Redis, and finding the real bottleneck.
+# ACD-164
+# S09 L06 — scaling the repo-server and Redis, and finding the real bottleneck.
 #
 # Two corrected facts are checkable straight from the pinned vendor manifest, no live cluster
 # needed: ARGOCD_REPO_SERVER_PARALLELISM_LIMIT is a real, wired env var backing
@@ -13,7 +14,7 @@
 # precondition is not created here either.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S09-L09 "ARGOCD_REPO_SERVER_PARALLELISM_LIMIT is a real wired env var, and Redis in Argo CD's own HA path is never Bitnami"
+lesson S09-L06 "ARGOCD_REPO_SERVER_PARALLELISM_LIMIT is a real wired env var, and Redis in Argo CD's own HA path is never Bitnami"
 tier repo
 
 INSTALL="bootstrap/install.yaml"

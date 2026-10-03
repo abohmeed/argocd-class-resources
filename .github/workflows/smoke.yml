@@ -1,14 +1,26 @@
 name: smoke
 
-# The discipline, in one file.
+# The discipline, in one file. Fast on every push, honest every night.
 #
-# 1. Repo lint runs on EVERY pull request. Nobody can approve on read-through alone.
-# 2. The cluster suite runs on every PR that touches manifests, on a cluster built from nothing.
-# 3. The same suite runs NIGHTLY whether or not anyone touched the repo, so rot from outside it
-#    — a point release, a vanished registry, a newly-hit CRD limit — is caught by the pipeline
-#    rather than by a student.
-# 4. It runs across EVERY supported Argo CD minor, so a future release that breaks a lesson
-#    fails here first.
+# 1. The repo tier ("repo invariants" and "runbook / test drift") runs on EVERY push and pull
+#    request. It needs only a checkout, finishes in minutes, and nobody can approve a change to a
+#    manifest a lesson shows on read-through alone.
+# 2. The cluster suite builds a cluster from nothing and runs every lesson that needs a live
+#    Argo CD. It runs NIGHTLY, whether or not anyone touched the repo, so rot from outside it
+#    (a point release, a vanished registry, a newly-hit CRD limit) is caught by the pipeline rather
+#    than by a student. It also runs on demand (workflow_dispatch). It does NOT run on push or pull
+#    request: it takes far longer than a review should wait, and a push-triggered run that is
+#    cancelled by the next push proves nothing.
+# 3. The cluster suite runs on ONE Argo CD version: v3.5.3, the version the course pins
+#    (ARGOCD_PIN in test/versions.env), records on, and commits in bootstrap/install.yaml. A student
+#    following the course installs exactly that version, so that is the version CI has to defend.
+#    The earlier three-minor matrix tested versions no lesson is recorded on, and its failures
+#    (for example "install.yaml does not pin v3.3.14") were artifacts of the matrix, not defects in
+#    a lesson. Moving the pin is a course decision; when it moves, versions.env moves with it.
+# 4. Every job has a 60-minute ceiling, so a hung step fails loudly instead of holding a runner
+#    for six hours.
+#
+# Decision record: D-342 (2026-10-03).
 
 on:
   pull_request:
@@ -25,6 +37,7 @@ jobs:
   lint:
     name: repo invariants
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Install kubectl
@@ -61,15 +74,12 @@ jobs:
       - run: ./test/smoke/run_all.sh repo
 
   cluster:
-    name: cluster suite (argocd ${{ matrix.argocd }})
+    name: cluster suite (argocd v3.5.3, the course pin)
     needs: lint
+    # Nightly and on demand only (see the header). The repo tier above still gates every push.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # The support window is the latest three minors. If a lesson only works on one of them,
-        # that is a fact the course must state on screen — so it is a fact CI has to surface.
-        argocd: ["v3.3", "v3.4", "v3.5"]
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -82,22 +92,23 @@ jobs:
       - name: Wait for the node
         run: kubectl wait --for=condition=Ready node --all --timeout=180s
 
-      - name: Resolve the newest patch of ${{ matrix.argocd }}
+      # No version resolution step: the suite runs on ARGOCD_PIN exactly as committed. Fail fast if
+      # the pin and the committed install manifest ever disagree, since every lesson assumes both.
+      - name: Confirm the course pin (test/versions.env and bootstrap/install.yaml agree)
         run: |
           set -euo pipefail
-          tag="$(git ls-remote --tags --refs https://github.com/argoproj/argo-cd.git \
-                 | awk -F/ '{print $NF}' | grep -E "^${{ matrix.argocd }}\.[0-9]+$" \
-                 | sort -V | tail -1)"
-          test -n "$tag" || { echo "no release found for ${{ matrix.argocd }}"; exit 1; }
-          echo "Resolved ${{ matrix.argocd }} -> $tag"
-          sed -i "s|^ARGOCD_PIN=.*|ARGOCD_PIN=\"$tag\"|" test/versions.env
+          source test/versions.env
+          echo "Argo CD pin: ${ARGOCD_PIN}"
+          grep -q "quay.io/argoproj/argocd:${ARGOCD_PIN}" bootstrap/install.yaml \
+            || { echo "bootstrap/install.yaml does not pin ${ARGOCD_PIN}"; exit 1; }
 
       - run: ./test/smoke/s02_control_plane.sh
       - run: ./test/smoke/s01_northwind.sh
 
       # The per-lesson cluster tier. Scripts that need a live Argo CD run here; scripts that need
-      # a browser, a second repository, a registry or four VMs declare themselves and are counted
-      # in their own column rather than returning a green they did not earn.
+      # a browser, a second repository, a registry, four VMs, or something this runner cannot
+      # provide declare themselves and are counted in their own column rather than returning a
+      # green they did not earn.
       - name: Per-lesson smoke suite (repo + cluster tiers)
         run: ./test/smoke/run_all.sh cluster
 
@@ -112,6 +123,7 @@ jobs:
     name: runbook / test drift
     needs: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Every command a lesson shows must exist in that lesson's smoke script

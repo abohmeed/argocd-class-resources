@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ACD-102
 # S03 L01 — the Application's own contract, and the error it produces when a field is wrong.
 #
 # The lesson's opening beat is a teammate's Application manifest that Argo CD refuses to sync

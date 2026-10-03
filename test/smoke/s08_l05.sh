@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ACD-191
 # S08 L05 — Git generator, directory mode.
 #
 # The lesson's claim: a directories generator pointed at apps/storefront/overlays/* produces

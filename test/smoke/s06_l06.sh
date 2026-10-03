@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
-# S06 L06 — a worked PreSync migration, done right.
+# ACD-154
+# S06 L06 — sync options, and what selective sync gives up.
 #
-# The claim is about PHASE ordering, not wave ordering alone: PreSync hooks all run before any
-# ordinary Sync-phase resource, regardless of wave. So a plain, non-hook ConfigMap — however
-# "obviously fine" it looks — is not guaranteed to exist yet when a PreSync-hook Job tries to
-# mount it, and the mount hangs. Making the ConfigMap itself a PreSync hook, one wave ahead of the
-# Job, is what actually fixes it. Driven through a scratch Application synced with `--local`, using
-# a trivial container that reads the mounted file instead of the lesson's real SQL migration — the
-# phase-ordering mechanism this defends doesn't depend on what the mounted content is used for.
+# Two claims, both about what Argo CD skips when you ask it to touch only one resource: a
+# selective sync (`--resource ...`) does not add an entry to `argocd app history` the way a full
+# sync does, and it does not run the phases hooks fire in — a PreSync hook sitting in the same
+# Application is NOT re-triggered by a selective sync of an unrelated resource. The byte-ceiling /
+# ServerSideApply mechanism this lesson also covers is already proven by S02 L03's own smoke test
+# against the real ApplicationSet CRD (test/smoke/s02_control_plane.sh); this script does not
+# duplicate it and focuses on what's unique to L09. All four sync options are also confirmed
+# settable. Runs against a scratch Application this script owns.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-LESSON_ID="s06l06"
+LESSON_ID="s06l09"
 APP="${LESSON_ID}-probe"
 NS="${LESSON_ID}-probe"
-WORKDIR="$(mktemp -d)"
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
+WORKDIR="$(mktemp -d)"
 
-lesson S06-L06 "a plain, non-hook ConfigMap is not guaranteed to exist before a PreSync Job that mounts it — making it a PreSync hook one wave ahead fixes that"
+lesson S06-L06 "selective sync touches only the named resource — it skips both the history entry and the hook phases a full sync runs"
 tier cluster
 
 # This lesson is proven through Argo CD's own API layer, so the CLI needs a session. On a
@@ -34,33 +36,37 @@ trap cleanup EXIT
 
 kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
-argocd app create "${APP}" --repo "${REPO}" --path apps/checkout/base \
-  --dest-namespace "${NS}" --dest-server https://kubernetes.default.svc \
-  --sync-policy none >/dev/null
-
-step "the ConfigMap is a PLAIN resource (no hook), the Job is a PreSync hook that mounts it — reproduce the ordering break"
-mkdir -p "${WORKDIR}"
 cat > "${WORKDIR}/kustomization.yaml" <<EOF
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - configmap.yaml
-  - job.yaml
+  - deployment.yaml
+  - hook-job.yaml
 EOF
-cat > "${WORKDIR}/configmap.yaml" <<EOF
-apiVersion: v1
-kind: ConfigMap
+cat > "${WORKDIR}/deployment.yaml" <<EOF
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: probe-payload
+  name: probe
   namespace: ${NS}
-data:
-  payload.txt: "s06l06-ok"
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: probe}
+  template:
+    metadata:
+      labels: {app: probe}
+    spec:
+      containers:
+        - name: probe
+          image: ${HTTP_ECHO_IMAGE}
+          args: ["-listen=:5678", "-text=probe-v1"]
 EOF
-cat > "${WORKDIR}/job.yaml" <<EOF
+cat > "${WORKDIR}/hook-job.yaml" <<EOF
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: probe-migrate
+  name: probe-presync
   namespace: ${NS}
   annotations:
     argocd.argoproj.io/hook: PreSync
@@ -72,43 +78,46 @@ spec:
       containers:
         - name: probe
           image: busybox:1.37
-          command: ["sh", "-c", "cat /payload/payload.txt"]
-          volumeMounts:
-            - name: payload
-              mountPath: /payload
-      volumes:
-        - name: payload
-          configMap:
-            name: probe-payload
+          command: ["sh", "-c", "true"]
 EOF
-argocd app sync "${APP}" --local "${WORKDIR}" >/dev/null 2>&1 || true
-sleep 20
-if kubectl wait --for=condition=complete job/probe-migrate -n "${NS}" --timeout=1s >/dev/null 2>&1; then
-  _fail "the PreSync Job completed even with a non-hook ConfigMap — the ordering break this lesson demonstrates did not reproduce; a change upstream may have altered phase ordering"
-else
-  _pass "the PreSync Job has NOT completed — it started before its non-hook ConfigMap existed, exactly as the lesson says it will"
-fi
 
-step "fix it: the ConfigMap becomes a PreSync hook at wave -1, one wave ahead of the Job"
-kubectl delete job probe-migrate -n "${NS}" --ignore-not-found >/dev/null 2>&1
-cat > "${WORKDIR}/configmap.yaml" <<EOF
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: probe-payload
-  namespace: ${NS}
-  annotations:
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/sync-wave: "-1"
-data:
-  payload.txt: "s06l06-ok"
-EOF
+argocd app create "${APP}" --repo "${REPO}" --path apps/checkout/base \
+  --dest-namespace "${NS}" --dest-server https://kubernetes.default.svc \
+  --sync-policy none >/dev/null
+
+step "all four sync options set cleanly"
+for opt in ServerSideApply=true CreateNamespace=true Replace=true SkipDryRunOnMissingResource=true; do
+  argocd app set "${APP}" --sync-option "${opt}" >/dev/null
+done
+opts="$(argocd app get "${APP}" -o yaml 2>/dev/null | grep -A6 'syncOptions:' || true)"
+for opt in ServerSideApply=true CreateNamespace=true Replace=true SkipDryRunOnMissingResource=true; do
+  if printf '%s' "${opts}" | grep -qF "${opt}"; then
+    _pass "sync option ${opt} is set"
+  else
+    _fail "sync option ${opt} did not stick — 'argocd app get' does not list it under syncOptions"
+  fi
+done
+
+step "a full sync appears in history, and the PreSync hook fires"
 argocd app sync "${APP}" --local "${WORKDIR}" >/dev/null 2>&1 || true
-kubectl wait --for=condition=complete job/probe-migrate -n "${NS}" --timeout=60s >/dev/null 2>&1 \
-  || _fail "the PreSync Job still did not complete even after the ConfigMap became a wave -1 PreSync hook — the fix the lesson teaches does not reproduce"
-output="$(kubectl logs job/probe-migrate -n "${NS}" 2>/dev/null || true)"
-[ "${output}" = "s06l06-ok" ] \
-  && _pass "with the ConfigMap wave-ordered ahead of it, the Job completed and read the mounted content correctly" \
-  || _fail "Job completed but read '${output}', not 's06l06-ok' — the mount is not picking up the intended ConfigMap"
+kubectl wait --for=condition=complete job/probe-presync -n "${NS}" --timeout=60s >/dev/null 2>&1 \
+  || _fail "PreSync hook never completed on the full sync — cannot test what selective sync skips relative to it"
+hist_before="$(argocd app history "${APP}" 2>/dev/null | grep -c . || true)"
+hook_rv_before="$(kubectl get job probe-presync -n "${NS}" -o jsonpath='{.metadata.resourceVersion}')"
+_pass "full sync completed, history has ${hist_before} line(s), hook Job at resourceVersion ${hook_rv_before}"
+
+step "selective sync of just the Deployment — no new history entry, no new hook run"
+sed -i.bak 's/probe-v1/probe-v2/' "${WORKDIR}/deployment.yaml" && rm -f "${WORKDIR}/deployment.yaml.bak"
+argocd app sync "${APP}" --local "${WORKDIR}" --resource apps:Deployment:probe >/dev/null 2>&1 || true
+sleep 5
+hist_after="$(argocd app history "${APP}" 2>/dev/null | grep -c . || true)"
+[ "${hist_after}" -eq "${hist_before}" ] \
+  && _pass "history is still ${hist_after} line(s) — the selective sync did not add an entry" \
+  || _fail "history grew from ${hist_before} to ${hist_after} lines — a selective sync should not appear in rollback history"
+
+hook_rv_after="$(kubectl get job probe-presync -n "${NS}" -o jsonpath='{.metadata.resourceVersion}' 2>/dev/null || true)"
+[ "${hook_rv_after}" = "${hook_rv_before}" ] \
+  && _pass "the PreSync hook Job is unchanged (still resourceVersion ${hook_rv_after}) — selective sync skipped the hook phase entirely" \
+  || _fail "the PreSync hook Job changed (resourceVersion ${hook_rv_before} -> ${hook_rv_after}) — selective sync should not have touched the hook phases at all"
 
 smoke_done

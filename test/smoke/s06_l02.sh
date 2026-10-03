@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ACD-110
 # S06 L02 — sync waves order resources inside a phase.
 #
 # The runbook's own Preconditions say it plainly: "the committed repo already carries the fix

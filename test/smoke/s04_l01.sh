@@ -1,38 +1,58 @@
 #!/usr/bin/env bash
-# S04 L01 — the plain-directory source type.
+# ACD-91
+# S04 L01 — Kustomize detection from one file, and overlays that inherit an existing base.
 #
-# The lesson's whole premise is that Argo CD, finding no kustomization/Helm/plugin markers under
-# the path, falls back to its simplest source type and applies the manifests as written. One
-# stray kustomization.yaml in this directory silently converts the source to Kustomize and the
-# lesson teaches the wrong thing while appearing to work. That is what this defends.
+# The lesson's claim: Argo CD's source-type detection flips from Directory to Kustomize purely
+# because a kustomization.yaml exists at the source path — no field on the Application changes.
+# The repo-side half of that claim is mechanical and checkable without a cluster: the path this
+# course still teaches as "plain directory" (S04 L01's manifests/) must carry NO build marker,
+# and every path this lesson points Argo CD at as Kustomize (base/, overlays/staging,
+# overlays/prod) must carry one. If either drifts, the "flip" the lecture demonstrates on camera
+# stops being caused by what the narration says it's caused by.
+#
+# The lesson also warns that a missing `resources:` entry syncs CLEAN over an empty namespace —
+# invisible on the dashboard, the worst kind of failure. This defends against that trap ever
+# shipping in the committed overlays: `resources:` must actually resolve to the base, not just
+# exist as a key.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S04-L01 "a directory with no build markers is applied verbatim, as a plain directory"
+lesson S04-L01 "kustomization.yaml presence is what flips source-type detection, and no committed overlay ships with an empty resources: trap"
 tier repo
 
-step "the directory the lesson syncs actually exists"
-assert_exists_dir "apps/storefront/manifests"
-
-step "and it is a PLAIN directory — no build marker of any kind"
+step "the plain-directory source (S04 L01) still carries no build marker"
 for marker in kustomization.yaml kustomization.yml Chart.yaml values.yaml .argocd-source.yaml; do
   if [ -e "${REPO_ROOT}/apps/storefront/manifests/${marker}" ]; then
-    _fail "apps/storefront/manifests/${marker} exists — Argo CD would detect a build tool and the lesson's premise collapses"
+    _fail "apps/storefront/manifests/${marker} exists — this lesson's Step 1 flip depends on this directory currently having none, and S04 L01's own claim collapses with it"
   fi
 done
-_pass "no kustomization, chart or plugin marker present"
+_pass "apps/storefront/manifests/ still has no kustomization/Chart/values marker"
 
-step "the manifests are what the lesson narrates: a Deployment and a Service, nothing else"
-assert_yaml_wellformed "apps/storefront/manifests/deployment.yaml"
-assert_yaml_wellformed "apps/storefront/manifests/service.yaml"
+step "the base and both new overlays DO carry the marker that triggers Kustomize detection"
+assert_exists_file "apps/storefront/base/kustomization.yaml"
+assert_exists_file "apps/storefront/overlays/staging/kustomization.yaml"
+assert_exists_file "apps/storefront/overlays/prod/kustomization.yaml"
 
-step "the image is a tag that exists"
-# hashicorp/http-echo:1.4.2 is a 404 and would ImagePullBackOff on camera. 1.4.2 is legitimate
-# ONLY on the fictional ghcr.io/northwind image, which is never pulled.
-if grep -q 'hashicorp/http-echo:1\.4\.2' "${REPO_ROOT}/apps/storefront/manifests/deployment.yaml"; then
-  _fail "deployment pins hashicorp/http-echo:1.4.2, which does not exist — this ImagePullBackOffs on camera"
+step "neither overlay shipped with the missing-resources trap — each actually pulls in the base"
+assert_file_contains "apps/storefront/overlays/staging/kustomization.yaml" '^\s*-\s*\.\./\.\./base\s*$' \
+  "overlays/staging resolves resources: to ../../base, not an empty list"
+assert_file_contains "apps/storefront/overlays/prod/kustomization.yaml" '^\s*-\s*\.\./\.\./base\s*$' \
+  "overlays/prod resolves resources: to ../../base, not an empty list"
+
+step "each overlay's per-environment delta is a real, pullable image tag"
+assert_file_contains "apps/storefront/overlays/staging/kustomization.yaml" 'newTag: "1\.0"' \
+  "staging pins hashicorp/http-echo to the one tag that actually exists"
+assert_file_contains "apps/storefront/overlays/prod/kustomization.yaml" 'newTag: "1\.0"' \
+  "prod pins hashicorp/http-echo to the one tag that actually exists"
+if grep -qE 'newTag: "1\.4\.2"' \
+  "${REPO_ROOT}/apps/storefront/overlays/staging/kustomization.yaml" \
+  "${REPO_ROOT}/apps/storefront/overlays/prod/kustomization.yaml" 2>/dev/null; then
+  _fail "an overlay pins hashicorp/http-echo:1.4.2 — that tag does not exist and ImagePullBackOffs on camera"
 fi
-grep -q 'image: hashicorp/http-echo:' "${REPO_ROOT}/apps/storefront/manifests/deployment.yaml" \
-  && _pass "image pinned to an existing hashicorp/http-echo tag" \
-  || _fail "no pinned hashicorp/http-echo image in the plain-directory Deployment"
+_pass "no overlay pins the non-existent hashicorp/http-echo:1.4.2 tag"
+
+step "the overlays and base are well-formed YAML"
+assert_yaml_wellformed "apps/storefront/base/kustomization.yaml"
+assert_yaml_wellformed "apps/storefront/overlays/staging/kustomization.yaml"
+assert_yaml_wellformed "apps/storefront/overlays/prod/kustomization.yaml"
 
 smoke_done

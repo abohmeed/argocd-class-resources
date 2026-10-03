@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ACD-153
 # S12 L01 — Argo CD exposes its own health as metrics: a histogram for latency, a counter for
 # totals, and a DEAD endpoint reads as connection-refused, not a page full of zeros.
 #

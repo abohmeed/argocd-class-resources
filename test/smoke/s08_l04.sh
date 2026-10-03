@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ACD-190
 # S08 L04 — Cluster generator: the fleet finds itself.
 #
 # The lesson's own runbook carries a BLOCKING PRECONDITION: it narrates a fleet of registered

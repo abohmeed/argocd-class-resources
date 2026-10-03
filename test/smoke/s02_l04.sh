@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# S01 L04 — the base/overlay split actually has teeth: editing the OVERLAY changes what
+# ACD-82
+# S02 L04 — the base/overlay split actually has teeth: editing the OVERLAY changes what
 # renders, editing the BASE would not, and the reason is a specific field, `behavior: merge`
 # on the overlay's configMapGenerator.
 #
@@ -12,7 +13,7 @@
 # build is pure file composition) and checks the ACTUAL rendered value, not the source files.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S01-L04 "the overlay's configMapGenerator (behavior: merge) wins over the base — editing the base would not move the rendered banner"
+lesson S02-L04 "the overlay's configMapGenerator (behavior: merge) wins over the base — editing the base would not move the rendered banner"
 tier repo
 
 step "both layers exist"

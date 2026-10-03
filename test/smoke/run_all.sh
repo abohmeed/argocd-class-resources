@@ -2,7 +2,7 @@
 # Run the per-lesson smoke suite for one tier, and report a census rather than a verdict.
 #
 #   ./test/smoke/run_all.sh repo       # needs nothing but a checkout — runs on every PR
-#   ./test/smoke/run_all.sh cluster    # needs k3s + Argo CD — nightly, and on manifest changes
+#   ./test/smoke/run_all.sh cluster    # needs k3s + Argo CD: nightly, and on demand (Argo CD v3.5.3)
 #   ./test/smoke/run_all.sh all
 #
 # Why a census. The suite's honesty problem is not failure, it is silence: a lesson that needs a

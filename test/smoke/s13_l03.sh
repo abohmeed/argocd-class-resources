@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# S14 L04 — the capstone's staged live failure: a SealedSecret sealed under strict scope for one
+# ACD-179
+# S13 L03 — the capstone's staged live failure: a SealedSecret sealed under strict scope for one
 # namespace does not decrypt when Kustomize's namespace transformer lands the same rendered
 # object in a DIFFERENT namespace. This is the failure that must actually fire, not a
 # configuration check that would read the same whether or not the mismatch is real.
@@ -17,7 +18,7 @@
 # own correction insists on saying plainly.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S14-L04 "a SealedSecret sealed for one namespace fails to decrypt in another — and a namespace-wide reseal fixes only the namespace it targeted"
+lesson S13-L03 "a SealedSecret sealed for one namespace fails to decrypt in another — and a namespace-wide reseal fixes only the namespace it targeted"
 tier cluster
 
 step "repo-tier precondition: apps/checkout/base/sealedsecret.yaml exists and is wired into the base"

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# S07 L11 — groups to RBAC, and the 3.0 subject change that breaks old policies.
+# ACD-157
+# S07 L09 — groups to RBAC, and the 3.0 subject change that breaks old policies.
 #
 # The claim is that Argo CD 3.0 changed which claim it checks a `g` line's subject against for an
 # OIDC/Dex-federated login: `federated_claims.user_id`, not the bare `sub` the token also carries.
@@ -20,7 +21,7 @@
 # whether the live SSO path ever runs here.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S07-L11 "Argo CD 3.0 checks a federated g-line's subject against federated_claims.user_id, not sub — a policy keyed on the old claim silently matches nobody"
+lesson S07-L09 "Argo CD 3.0 checks a federated g-line's subject against federated_claims.user_id, not sub — a policy keyed on the old claim silently matches nobody"
 tier external
 
 step "the one committed artifact that encodes this exact fact stays keyed on federated_claims.user_id, not sub"

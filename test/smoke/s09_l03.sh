@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ACD-126
 # S09 L03 — registering a cluster the GitOps way: a hand-authored Secret, and the missing
 # label's SILENT failure.
 #

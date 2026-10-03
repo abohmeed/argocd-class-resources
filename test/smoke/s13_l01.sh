@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# S14 L01 — self-manage-app.yaml governs the control plane one wave ahead of everything else,
+# ACD-171
+# S13 L01 — self-manage-app.yaml governs the control plane one wave ahead of everything else,
 # and root's own app-of-apps sync never touches it — because it deliberately does not live
 # inside bootstrap/apps/, the one directory root watches.
 #
@@ -9,7 +10,7 @@
 # it, and the repo layout that keeps root from ever trying to reconcile Argo CD's own install.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S14-L01 "self-manage-app.yaml sits outside bootstrap/apps/, so root never reconciles Argo CD's own install"
+lesson S13-L01 "self-manage-app.yaml sits outside bootstrap/apps/, so root never reconciles Argo CD's own install"
 tier cluster
 
 step "repo layout: self-manage-app.yaml is a sibling of root-app.yaml, not a child root-app.yaml watches"

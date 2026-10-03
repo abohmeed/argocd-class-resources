@@ -1,66 +1,145 @@
 #!/usr/bin/env bash
-# S07 L10 — standing up SSO end to end: Authentik, Dex, and first login.
+# ACD-163
+# S07 L10 — service account impersonation: stopping Argo CD being a god object.
 #
-# None of this lesson's actual claim runs in CI. It installs a second stateful component
-# (Authentik, its own Postgres/Redis), provisions it through a Blueprint whose exact chart-values
-# shape the runbook itself flags as unverified, and closes on `argocd login --sso`, which opens a
-# real browser at a real identity provider's login page — there is no headless equivalent to
-# automate here honestly. The runbook's own header already marks this lesson "RUNTIME OWED": this
-# script does not pretend otherwise.
+# The claim: once `application.sync.impersonation.enabled` is on and an AppProject names a scoped
+# ServiceAccount via `destinationServiceAccounts`, the controller syncs AS that ServiceAccount —
+# so a sync succeeds for whatever its Role grants (Deployments/Services/ConfigMaps here), but
+# reading logs or deleting a Pod through Argo CD is refused by underlying KUBERNETES RBAC on the
+# impersonated identity, even for an account (here: admin) whose own Argo CD-level RBAC would
+# otherwise allow both without question. That last part is the whole point: this is a different,
+# lower layer than S07 L06–L08's policy.csv, and it overrides what policy.csv would allow.
 #
-# What IS checkable from a repo checkout, and is worth checking every time regardless of whether
-# the live SSO path is ever exercised in CI:
-#   - the course's own stated choice of identity provider. Authentik, never Keycloak — the runbook
-#     names the reason (Keycloak's default footprint was rejected for this course's node budget).
-#     A stray Keycloak reference would mean the course drifted from its own documented decision.
-#   - no OIDC client secret committed anywhere looks like a real credential. A realistic-looking
-#     token shape gets the whole repo push rejected by GitHub push protection — this exists to
-#     catch that before a push does, not after.
-#   - versions.env pins every other external tool this course installs; Authentik does not have an
-#     entry yet, and the runbook's own Preconditions flag that gap. This assertion is EXPECTED TO
-#     FAIL until that pin is added — that is real, current, and this script's job is to say so
-#     rather than quietly not check it.
+# `application.sync.impersonation.enabled` is a global flag on argocd-cm — snapshotted and
+# restored so this is safe to run alongside the rest of the S07 suite on the same cluster.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S07-L10 "Authentik (never Keycloak) is the identity provider; SSO first-login is a live, browser-driven OIDC handshake this suite cannot automate honestly"
-tier external
+lesson S07-L10 "impersonation makes the controller sync as a scoped ServiceAccount — its Role's grants succeed, but logs and Pod delete are refused by Kubernetes RBAC underneath, even for an admin Argo CD session"
+tier cluster
 
-step "the course's own documented identity-provider choice holds: no Keycloak reference anywhere"
-hits="$(grep -rIli --exclude-dir=.git --exclude-dir=test -e 'keycloak' "${REPO_ROOT}" 2>/dev/null || true)"
-if [ -z "${hits}" ]; then
-  _pass "no Keycloak reference in the repo — Authentik is the only identity provider named"
-else
-  _fail "Keycloak referenced in: ${hits} — S07 L10's own runbook explains why Keycloak was rejected for this course; this drifted from that decision"
-fi
+REPO="https://github.com/abohmeed/argocd-class-resources.git"
+PROJ="s07l12-probe"
+NS="s07l12-probe"
+APP="s07l12-app"
+SA="s07l12-controller"
+PF_PID=""
+PORT=18212
+HAD_IMPERSONATION="no"
+ORIG_IMPERSONATION=""
 
-step "no OIDC client secret committed anywhere looks like a real credential"
-hits="$(grep -rIln --exclude-dir=.git --exclude-dir=test -iE 'client[_-]?secret' "${REPO_ROOT}" 2>/dev/null || true)"
-if [ -z "${hits}" ]; then
-  _pass "no clientSecret/client_secret reference committed yet — nothing to check the shape of"
-else
-  bad=""
-  while IFS= read -r f; do
-    # A real secret is a long, dense base64/hex-looking token. A placeholder is angle-bracketed
-    # or reads like an instruction (contains a space, or starts with < or REPLACE).
-    while IFS= read -r line; do
-      val="$(printf '%s' "${line}" | grep -oiE 'client[_-]?secret["'"'"']?\s*[:=]\s*["'"'"']?[^"'"'"',[:space:]]+' | sed -E 's/.*[:=][[:space:]]*["'"'"']?//')"
-      [ -z "${val}" ] && continue
-      case "${val}" in
-        \<*|REPLACE*|CHANGE*|TODO*|YOUR_*) ;;
-        *) if printf '%s' "${val}" | grep -qE '^[A-Za-z0-9_./+=-]{20,}$'; then bad="${bad}\n  ${f}: ${val}"; fi ;;
-      esac
-    done < <(grep -iE 'client[_-]?secret' "${f}")
-  done <<< "${hits}"
-  if [ -z "${bad}" ]; then
-    _pass "every committed client-secret-looking reference is an obvious placeholder, not a realistic token"
+cleanup() {
+  [ -n "${PF_PID}" ] && kill "${PF_PID}" >/dev/null 2>&1 || true
+  if [ "${HAD_IMPERSONATION}" = "yes" ]; then
+    kubectl patch configmap argocd-cm -n argocd --type merge \
+      -p "{\"data\":{\"application.sync.impersonation.enabled\":\"${ORIG_IMPERSONATION}\"}}" >/dev/null 2>&1 || true
   else
-    _fail "a client-secret-looking value is NOT an obvious placeholder — this would get the repo's next push rejected by GitHub push protection, or worse, actually leak a credential:${bad}"
+    kubectl patch configmap argocd-cm -n argocd --type json \
+      -p '[{"op":"remove","path":"/data/application.sync.impersonation.enabled"}]' >/dev/null 2>&1 || true
   fi
+  kubectl delete application "${APP}" -n argocd --wait=false >/dev/null 2>&1 || true
+  kubectl delete rolebinding "${SA}" -n "${NS}" --wait=false >/dev/null 2>&1 || true
+  kubectl delete role "${SA}" -n "${NS}" --wait=false >/dev/null 2>&1 || true
+  kubectl delete serviceaccount "${SA}" -n "${NS}" --wait=false >/dev/null 2>&1 || true
+  kubectl delete appproject "${PROJ}" -n argocd --wait=false >/dev/null 2>&1 || true
+  kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+if ! command -v argocd >/dev/null 2>&1; then
+  _fail "argocd CLI not on PATH — argocd app logs / delete-resource are only reachable behind the real API"
 fi
 
-step "versions.env: Authentik's version pin (this is a known, currently-open gap — see the runbook's own Preconditions callout)"
-assert_file_contains "test/versions.env" "AUTHENTIK" \
-  "Authentik has a pinned version like every other external tool this course installs (versions.env)"
+step "the scoped ServiceAccount: full control of Deployments/Services/ConfigMaps, read-only on Pods, no logs subresource"
+kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+cat <<EOF | kubectl apply -f - >/dev/null
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: ${SA}, namespace: ${NS}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: ${SA}, namespace: ${NS}}
+rules:
+  - apiGroups: ["", "apps"]
+    resources: ["deployments", "services", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: ${SA}, namespace: ${NS}}
+subjects:
+  - {kind: ServiceAccount, name: ${SA}, namespace: ${NS}}
+roleRef: {kind: Role, name: ${SA}, apiGroup: rbac.authorization.k8s.io}
+EOF
 
-needs_external "a browser, a live Authentik instance, and a real Dex OIDC handshake" \
-  "verified once by hand instead, on the recording cluster, once the two gaps this runbook flags (the missing AUTHENTIK_VERSION pin and the untested multi-host TLS/HTTPRoute plumbing) are resolved — not yet done as of the runbook's own 'RUNTIME OWED' header"
+can_delete="$(kubectl auth can-i delete pods --namespace "${NS}" --as="system:serviceaccount:${NS}:${SA}")"
+can_logs="$(kubectl auth can-i get pods --subresource=log --namespace "${NS}" --as="system:serviceaccount:${NS}:${SA}")"
+can_update="$(kubectl auth can-i update deployments --namespace "${NS}" --as="system:serviceaccount:${NS}:${SA}")"
+if [ "${can_delete}" = "no" ] && [ "${can_logs}" = "no" ] && [ "${can_update}" = "yes" ]; then
+  _pass "ServiceAccount's Kubernetes RBAC is exactly as scoped: no pod delete, no pod logs, yes deployment update"
+else
+  _fail "ServiceAccount's Role does not have the expected shape (delete=${can_delete} logs=${can_logs} update=${can_update}) — the rest of this test cannot isolate impersonation's effect from a Role that is wrong to begin with"
+fi
+
+step "wire it in: destinationServiceAccounts on the project, impersonation enabled instance-wide"
+present="$(kubectl get configmap argocd-cm -n argocd -o jsonpath='{.data.application\.sync\.impersonation\.enabled}' 2>/dev/null || true)"
+if [ -n "${present}" ]; then HAD_IMPERSONATION="yes"; ORIG_IMPERSONATION="${present}"; fi
+cat <<EOF | kubectl apply -f - >/dev/null
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: ${PROJ}, namespace: argocd}
+spec:
+  description: "S07 L12 smoke probe — not the real checkout project."
+  sourceRepos: ["${REPO}"]
+  destinations:
+    - {server: "https://kubernetes.default.svc", namespace: "${NS}"}
+  destinationServiceAccounts:
+    - {server: "https://kubernetes.default.svc", namespace: "${NS}", defaultServiceAccount: "${SA}"}
+EOF
+kubectl patch configmap argocd-cm -n argocd --type merge -p \
+  '{"data":{"application.sync.impersonation.enabled":"true"}}' >/dev/null
+
+step "sync succeeds — the SA's Role covers everything a plain Deployment+Service sync touches"
+cat <<EOF | kubectl apply -f - >/dev/null
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: ${APP}, namespace: argocd}
+spec:
+  project: ${PROJ}
+  source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/manifests}
+  destination: {server: "https://kubernetes.default.svc", namespace: "${NS}"}
+  syncPolicy: {automated: {}, syncOptions: ["CreateNamespace=true"]}
+EOF
+wait_for_sync "${APP}" 180
+POD_NAME="$(kubectl get pods -n "${NS}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+[ -n "${POD_NAME}" ] || _fail "no Pod found in ${NS} after a reported sync"
+
+step "reach argocd-server as admin — an account whose OWN Argo CD RBAC has no reason to be denied logs or delete"
+kubectl -n argocd port-forward svc/argocd-server "${PORT}:443" >/tmp/s07l12-portforward.log 2>&1 &
+PF_PID=$!
+up="no"
+for _ in $(seq 1 20); do curl -sk "https://localhost:${PORT}/healthz" >/dev/null 2>&1 && { up="yes"; break; }; sleep 1; done
+[ "${up}" = "yes" ] || _fail "argocd-server never answered on the port-forward"
+ADMIN_PW="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 --decode)"
+[ -n "${ADMIN_PW}" ] || _fail "no argocd-initial-admin-secret on this cluster"
+argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
+
+step "admin's own logs read is refused — blocked underneath by the impersonated SA's Kubernetes RBAC, not by policy.csv"
+out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)"; rc=$?
+if [ "${rc}" -eq 0 ]; then
+  _fail "admin could read logs through the impersonated app — the impersonated ServiceAccount has no pods/log permission, so this should have been refused underneath, regardless of admin's own Argo CD RBAC"
+else
+  _pass "admin's logs read refused (exit ${rc}) — Kubernetes RBAC on the impersonated identity overrides what admin's own Argo CD RBAC would otherwise allow"
+fi
+
+step "admin's own Pod delete is refused the same way"
+if argocd app delete-resource "${APP}" --kind Pod --resource-name "${POD_NAME}" --namespace "${NS}" --grpc-web >/dev/null 2>&1; then
+  _fail "admin deleted the Pod through the impersonated app — the SA's Role only grants get/list/watch on Pods, delete should have been refused"
+else
+  _pass "Pod delete refused — the impersonated SA never had delete on Pods, and impersonation means that is what actually governs, not admin's own reach"
+fi
+
+smoke_done

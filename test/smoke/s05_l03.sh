@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ACD-94
 # S05 L03 — External Secrets Operator: pulling from OpenBao, not Vault.
 #
 # The claim worth defending is specific, not generic ESO plumbing: this course demos against
@@ -11,7 +12,12 @@
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 lesson S05-L03 "ESO pulls checkout's credential from OpenBao at reconcile time — nothing secret-shaped ever touches Git"
-tier cluster
+tier external
+
+# D-342: declared external for a measured RUNNER limit, not a lesson defect. The cluster body below
+# is kept intact for a host that can run it; restore "tier cluster" and smoke_done when the limit is lifted.
+needs_external "a running OpenBao and External Secrets Operator" \
+  "runner limit: the OpenBao statefulset never became ready on the GitHub-hosted runner (run 37111303388), so ESO has no store to pull from here"
 
 LESSON_ID="s05l03"
 NS="${LESSON_ID}-probe"
@@ -119,4 +125,4 @@ done
   && _pass "ESO pulled the exact credential written into OpenBao — the ClusterSecretStore/ExternalSecret chain works end to end" \
   || _fail "ExternalSecret never materialised '${SECRET_VALUE}' (got '${pulled}') — the OpenBao pull chain is broken"
 
-smoke_done
+# smoke_done  (unreachable while this script is tier external; restore with tier cluster)
