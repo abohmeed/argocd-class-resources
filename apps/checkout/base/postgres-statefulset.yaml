@@ -58,7 +58,11 @@ spec:
             limits:
               memory: 256Mi
   volumeClaimTemplates:
-    - metadata:
+    # apiVersion and kind are spelled out because the API server adds them; without them a
+    # ServerSideApply comparison always differs and the Application never reads Synced.
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
