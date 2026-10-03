@@ -2,6 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: storefront
+  annotations:
+    northwind.io/scanned-at: "pending"
   labels:
     app.kubernetes.io/name: storefront
 spec:
