@@ -58,9 +58,7 @@ spec:
             limits:
               memory: 256Mi
   volumeClaimTemplates:
-    - apiVersion: v1
-      kind: PersistentVolumeClaim
-      metadata:
+    - metadata:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
