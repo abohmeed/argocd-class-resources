@@ -45,7 +45,15 @@ jobs:
           kubectl apply --server-side --force-conflicts -k "https://github.com/argoproj/argo-cd/manifests/crds?ref=${ARGOCD_PIN}"
           # apply returns before discovery serves the new kinds; without this, the ApplicationSet
           # parse raced it and failed "no matches for kind" on some runs and not others.
-          kubectl wait --for=condition=Established crd --all --timeout=90s
+          # Wait on Argo CD's three CRDs by name, not `crd --all`: k3s keeps creating its own CRDs
+          # (traefik, helm) during this step, and one with no status yet fails the whole wait with
+          # ".status.conditions accessor error". Retried, since a just-applied CRD can be status-less too.
+          argo_crds="crd/applications.argoproj.io crd/applicationsets.argoproj.io crd/appprojects.argoproj.io"
+          for i in $(seq 1 30); do
+            kubectl wait --for=condition=Established $argo_crds --timeout=10s && break
+            sleep 3
+          done
+          kubectl wait --for=condition=Established $argo_crds --timeout=10s
       - run: ./test/smoke/lint_repo.sh
       # The per-lesson repo tier: every lesson whose claim can be checked from a checkout alone.
       # Cheap enough to run on every PR, which is the point — this is the tier that catches a
