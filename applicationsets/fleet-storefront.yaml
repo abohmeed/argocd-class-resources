@@ -24,6 +24,10 @@ spec:
   template:
     metadata:
       name: 'storefront-{{ .name }}'
+      # The ApplicationSet controller adds no label of its own (v3.5.3), so the template sets one:
+      # kubectl get applications -n argocd -l appset=fleet-storefront lists exactly what this generates.
+      labels:
+        appset: fleet-storefront
     spec:
       project: default
       source:

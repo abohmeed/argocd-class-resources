@@ -48,6 +48,7 @@ spec:
   template:
     metadata:
       name: '{{.service}}-dev'
+      labels: {appset: ${APPSET}}
     spec:
       project: default
       source:
@@ -66,8 +67,8 @@ step "Step 4 — exactly three Applications, all Synced/Healthy, none hand-named
 wait_for_sync "payments-dev" 180
 wait_for_sync "search-dev" 180
 wait_for_sync "loyalty-dev" 180
-count="$(kubectl get applications -n argocd -l argocd.argoproj.io/application-set-name=${APPSET} --no-headers | wc -l | tr -d ' ')"
-[ "${count}" -eq 3 ] && _pass "exactly 3 Applications carry the application-set-name label" \
+count="$(kubectl get applications -n argocd -l appset=${APPSET} --no-headers | wc -l | tr -d ' ')"
+[ "${count}" -eq 3 ] && _pass "exactly 3 Applications carry the appset=${APPSET} label their template sets" \
   || _fail "expected 3 Applications for ${APPSET}, found ${count}"
 
 step "Step 5 — hand-edit a label the controller never set, and watch it get reverted"

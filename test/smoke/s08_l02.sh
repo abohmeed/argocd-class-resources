@@ -48,6 +48,7 @@ spec:
   template:
     metadata:
       name: '{{name}}-storefront'
+      labels: {appset: ${APPSET}}
     spec:
       project: default
       source:
@@ -88,6 +89,7 @@ spec:
   template:
     metadata:
       name: '{{.name}}-storefront'
+      labels: {appset: ${APPSET}}
     spec:
       project: default
       source:

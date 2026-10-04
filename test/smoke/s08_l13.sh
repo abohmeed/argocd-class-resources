@@ -47,6 +47,7 @@ spec:
   template:
     metadata:
       name: '{{.service}}-dev'
+      labels: {appset: ${APPSET}}
     spec:
       project: default
       source:
@@ -81,7 +82,7 @@ kubectl delete applicationset "${APPSET}" -n argocd --wait=true --timeout=90s >/
 remaining=""
 for _ in $(seq 1 12); do
   sleep 5
-  remaining="$(kubectl get applications -n argocd -l argocd.argoproj.io/application-set-name=${APPSET} --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  remaining="$(kubectl get applications -n argocd -l appset=${APPSET} --no-headers 2>/dev/null | wc -l | tr -d ' ')"
   [ "${remaining}" -eq 0 ] && break
 done
 [ "${remaining}" = 0 ] && _pass "all three Applications gone after deleting the ApplicationSet" \
@@ -106,7 +107,7 @@ kubectl delete applicationset "${APPSET}" -n argocd --wait=true --timeout=90s >/
 remaining=""
 for _ in $(seq 1 12); do
   sleep 5
-  remaining="$(kubectl get applications -n argocd -l argocd.argoproj.io/application-set-name=${APPSET} --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  remaining="$(kubectl get applications -n argocd -l appset=${APPSET} --no-headers 2>/dev/null | wc -l | tr -d ' ')"
   [ "${remaining}" -eq 0 ] && break
 done
 [ "${remaining}" = 0 ] && _pass "all three Application OBJECTS are gone, same as the default case" \

@@ -49,6 +49,7 @@ spec:
   template:
     metadata:
       name: 'storefront-{{.path.basename}}'
+      labels: {appset: ${APPSET}}
     spec:
       project: default
       source:
@@ -66,7 +67,7 @@ EOF
 found=no
 for _ in $(seq 1 24); do
   sleep 10
-  count="$(kubectl get applications -n argocd -l argocd.argoproj.io/application-set-name=${APPSET} --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  count="$(kubectl get applications -n argocd -l appset=${APPSET} --no-headers 2>/dev/null | wc -l | tr -d ' ')"
   [ "${count}" -ge 4 ] && { found=yes; break; }
 done
 if [ "${found}" = yes ]; then
