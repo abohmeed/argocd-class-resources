@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ACD-95
+# lesson: s04_l03 Promoting builds from staging to production through directory changes
 # Promotion is a one-line edit to overlays/prod, never a branch merge.
 #
 # The lesson deliberately reproduces the branch-merge tangle first (two feature branches merged

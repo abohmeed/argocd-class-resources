@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ACD-82
+# lesson: s02_l04 Building a Kustomize base and overlay, and deploying it by hand
 # The base/overlay split actually has teeth: editing the OVERLAY changes what
 # renders, editing the BASE would not, and the reason is a specific field, `behavior: merge`
 # on the overlay's configMapGenerator.
