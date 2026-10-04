@@ -1,6 +1,0 @@
-{
-  "name": "dev",
-  "server": "https://kubernetes.default.svc",
-  "tier": "dev",
-  "replicas": 1
-}
