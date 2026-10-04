@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ACD-87
-# S04 L01 — the plain-directory source type.
+# lesson: s04_l01 Plain manifests as a source: the honest limits
+# The plain-directory source type.
 #
 # The lesson's whole premise is that Argo CD, finding no kustomization/Helm/plugin markers under
 # the path, falls back to its simplest source type and applies the manifests as written. One
@@ -14,23 +14,23 @@ tier repo
 step "the directory the lesson syncs actually exists"
 assert_exists_dir "apps/storefront/manifests"
 
-step "and it is a PLAIN directory — no build marker of any kind"
+step "and it is a PLAIN directory: no build marker of any kind"
 for marker in kustomization.yaml kustomization.yml Chart.yaml values.yaml .argocd-source.yaml; do
   if [ -e "${REPO_ROOT}/apps/storefront/manifests/${marker}" ]; then
-    _fail "apps/storefront/manifests/${marker} exists — Argo CD would detect a build tool and the lesson's premise collapses"
+    _fail "apps/storefront/manifests/${marker} exists: Argo CD would detect a build tool and the lesson's premise collapses"
   fi
 done
 _pass "no kustomization, chart or plugin marker present"
 
-step "the manifests are what the lesson narrates: a Deployment and a Service, nothing else"
+step "the manifests are what the lesson shows: a Deployment and a Service, nothing else"
 assert_yaml_wellformed "apps/storefront/manifests/deployment.yaml"
 assert_yaml_wellformed "apps/storefront/manifests/service.yaml"
 
 step "the image is a tag that exists"
-# hashicorp/http-echo:1.4.2 is a 404 and would ImagePullBackOff on camera. 1.4.2 is legitimate
+# hashicorp/http-echo:1.4.2 is a 404 and would ImagePullBackOff. 1.4.2 is legitimate
 # ONLY on the fictional ghcr.io/northwind image, which is never pulled.
 if grep -q 'hashicorp/http-echo:1\.4\.2' "${REPO_ROOT}/apps/storefront/manifests/deployment.yaml"; then
-  _fail "deployment pins hashicorp/http-echo:1.4.2, which does not exist — this ImagePullBackOffs on camera"
+  _fail "deployment pins hashicorp/http-echo:1.4.2, which does not exist: this ImagePullBackOffs"
 fi
 grep -q 'image: hashicorp/http-echo:' "${REPO_ROOT}/apps/storefront/manifests/deployment.yaml" \
   && _pass "image pinned to an existing hashicorp/http-echo tag" \

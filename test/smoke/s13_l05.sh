@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# ACD-172
-# S13 L05: turning on the Source Hydrator takes a separate component AND a flag. The standard
+# lesson: s13_l05 Turning on the Source Hydrator for Northwind
+# Turning on the Source Hydrator takes a separate component AND a flag. The standard
 # install manifest ships neither.
 #
-# Re-anchored 2026-10-04 to the restored lesson (D-343) and the v3.5.3 manifests. The earlier
+# Re-anchored 2026-10-04 to the restored lesson and the v3.5.3 manifests. The earlier
 # version of this script claimed the hydrator was "a flag on existing components, not a workload
 # to deploy", and that the applicationset-controller read the flag. Both are wrong on 3.5.3:
 #   - pushing hydrated manifests to Git is the job of the commit server (argocd-commit-server),
@@ -14,7 +14,7 @@
 #     application controller and the API server (ARGOCD_HYDRATOR_ENABLED), so those are the two the
 #     lesson restarts, and not the repo server;
 #   - the push credential is a repository-write Secret created with kubectl, never committed.
-# The lesson adds bootstrap/commit-server.yaml and the flag in the student's fork, on camera; this
+# The lesson adds bootstrap/commit-server.yaml and the flag in the student's fork; this
 # repo is the starting state, so this checks that state and the facts the lesson rests on.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
@@ -45,9 +45,9 @@ else
   _pass "no argocd-commit-server in ${INSTALL}: that component only ships in install-with-hydrator.yaml, exactly the gap the lesson finds"
 fi
 if [ -e "${REPO_ROOT}/bootstrap/commit-server.yaml" ]; then
-  _fail "bootstrap/commit-server.yaml is committed: the lesson renders it on camera, so its starting state is gone"
+  _fail "bootstrap/commit-server.yaml is committed: the lesson renders it, so its starting state is gone"
 else
-  _pass "bootstrap/commit-server.yaml is not committed yet: the lesson renders it on camera"
+  _pass "bootstrap/commit-server.yaml is not committed yet: the lesson renders it"
 fi
 
 step "the flag is read by the application controller and the API server, and by nothing else"

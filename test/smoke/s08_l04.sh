@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# ACD-190
-# S08 L04 — Cluster generator: the fleet finds itself.
+# lesson: s08_l04 Cluster generator: the fleet finds new clusters on its own
+# Cluster generator: the fleet finds itself.
 #
-# The lesson's own runbook carries a BLOCKING PRECONDITION: it narrates a fleet of registered
+# This lesson has a BLOCKING PRECONDITION: it shows a fleet of registered
 # clusters (dev, staging, prod-us, plus staging-eu added live) that this course does not build
-# until S09 L02/L03 (Multipass VMs, then `argocd cluster add`). Until that infrastructure
+# until the multi-cluster section (Multipass VMs, then `argocd cluster add`). Until that infrastructure
 # exists, "an Application appears for every cluster whose Secret carries env: production" and
 # "a cluster with no env label is silently excluded, and appears the moment it's labeled" are
-# claims that need real multi-cluster registration this repo's CI does not have — so this
+# claims that need real multi-cluster registration this repo's CI does not have, so this
 # script asserts the one thing that IS checkable without it, and declares the rest.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
@@ -19,5 +19,5 @@ assert_exists_dir "apps/storefront/overlays/prod"
 assert_kustomize_builds "apps/storefront/overlays/prod"
 assert_renders_kind "apps/storefront/overlays/prod" "Deployment"
 
-needs_external "a registered multi-cluster fleet (dev, staging, prod-us, and a staging-eu context to add live) — built in S09 L02/L03, after this section in course numbering" \
+needs_external "a registered multi-cluster fleet (dev, staging, prod-us, and a staging-eu context to add live): built in the multi-cluster section, which comes after this one" \
   "verified once by hand on a real fleet: a Cluster generator selector matching env: production produced exactly one Application for the one Secret carrying that label; labeling a second, previously-unmatched cluster Secret produced a second Application within one reconcile, with no edit to the ApplicationSet itself"

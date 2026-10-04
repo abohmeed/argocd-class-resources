@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# ACD-161
-# S13 L02: a CMP sidecar whose generate script writes anything to stdout ahead of its YAML
+# lesson: s13_l02 Building a sidecar CMP: an envsubst plugin, end to end
+# A CMP sidecar whose generate script writes anything to stdout ahead of its YAML
 # breaks manifest generation LOUDLY. Argo CD reads everything `generate` sends to stdout as the
 # manifest, so a stray "Generating manifests..." line ahead of it makes diff and sync fail with a
 # YAML parse error ("failed to unmarshal manifest"), which points at the YAML, not the script.
-# Measured on v3.5.3 for the restored lesson (D-343); the pre-cut "silent no-op" claim was wrong.
+# Measured on v3.5.3 for the restored lesson; the pre-cut "silent no-op" claim was wrong.
 #
 # This builds the sidecar for real against the live repo-server, proves the bug (diff and sync
 # fail, nothing deployed), then proves the fix the lesson teaches: redirect the echo to stderr,

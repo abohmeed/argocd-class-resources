@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ACD-186
-# S12 L11 — three failures that all look like something else: a Lua health check can report
+# lesson: s12_l11 Troubleshooting Argo CD: false health, silent webhooks, repo-server OOM
+# Three failures that all look like something else: a Lua health check can report
 # Degraded on a perfectly healthy workload, a webhook secret mismatch dies silently while
 # GitHub still shows green, and the repo-server OOMs under real rendering load and comes back
 # with the process cut off mid-render in its own --previous log.
@@ -54,7 +54,7 @@ wait_for_sync "${APP}" 180
 step "a Lua health check that always lies makes Argo CD report Degraded on a workload that is actually fine"
 had_customizations="$(kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.resource\.customizations}' 2>/dev/null || true)"
 if [ -n "${had_customizations}" ]; then
-  _fail "argocd-cm already carries a resource.customizations block on this cluster — refusing to overwrite an existing customization; clear it by hand before running this script"
+  _fail "argocd-cm already carries a resource.customizations block on this cluster: refusing to overwrite an existing customization; clear it by hand before running this script"
 fi
 kubectl -n argocd patch cm argocd-cm --type merge -p '
 data:
@@ -78,7 +78,7 @@ while [ "$(date +%s)" -lt "${deadline}" ]; do
 done
 ready="$(kubectl get deployment storefront -n "${NS}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
 if [ "${health}" = "Degraded" ] && [ "${ready}" -ge 1 ] 2>/dev/null; then
-  _pass "Application reports Degraded while the Deployment itself has ${ready} ready replica(s) — the exact contradiction this lesson diagnoses"
+  _pass "Application reports Degraded while the Deployment itself has ${ready} ready replica(s): the exact contradiction this lesson diagnoses"
 else
   _fail "expected Application=Degraded with a genuinely ready Deployment; got health='${health}' readyReplicas='${ready}'"
 fi
@@ -97,7 +97,7 @@ orig_secret_val="$(kubectl -n argocd get secret argocd-secret -o jsonpath='{.dat
 kubectl -n argocd patch secret argocd-secret -p '{"stringData": {"webhook.github.secret": "s12l11-deliberately-wrong"}}' >/dev/null
 kubectl -n argocd rollout restart deploy argocd-server >/dev/null
 kubectl -n argocd rollout status deploy argocd-server --timeout=120s >/dev/null
-_pass "argocd-server restarted on a webhook secret that no longer matches any real sender — this is the state a real, unrotated GitHub secret produces; there is no cluster-side error to assert against, which is exactly the lesson's point"
+_pass "argocd-server restarted on a webhook secret that no longer matches any real sender: this is the state a real, unrotated GitHub secret produces; there is no cluster-side error to assert against, which is exactly the lesson's point"
 
 step "restore the webhook secret before touching the repo-server"
 if [ -n "${orig_secret}" ]; then
@@ -107,7 +107,7 @@ if [ -n "${orig_secret}" ]; then
   kubectl -n argocd rollout status deploy argocd-server --timeout=120s >/dev/null
   _pass "webhook secret restored"
 else
-  _fail "no original webhook secret value was captured — refusing to leave this cluster on a broken secret"
+  _fail "no original webhook secret value was captured: refusing to leave this cluster on a broken secret"
 fi
 
 step "a repo-server memory limit set below what real rendering load needs produces a provable OOMKilled, not a generic crash"
@@ -143,9 +143,9 @@ for i in $(seq -w 1 15); do
 done
 
 if [ "${oomed}" = yes ]; then
-  _pass "argocd-repo-server's own 'Last State' names Reason: OOMKilled — provably the memory limit, not a generic crash"
+  _pass "argocd-repo-server's own 'Last State' names Reason: OOMKilled: provably the memory limit, not a generic crash"
 else
-  _fail "repo-server never showed OOMKilled within the timeout — either the limit wasn't tight enough on this node, or the load didn't reach it"
+  _fail "repo-server never showed OOMKilled within the timeout: either the limit wasn't tight enough on this node, or the load didn't reach it"
 fi
 
 step "restoring the memory limit lets the repo-server run cleanly again"

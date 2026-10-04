@@ -2,7 +2,7 @@ name: smoke
 
 # The discipline, in one file. Fast on every push, honest every night.
 #
-# 1. The repo tier ("repo invariants" and "runbook / test drift") runs on EVERY push and pull
+# 1. The repo tier ("repo invariants" and "lesson / test drift") runs on EVERY push and pull
 #    request. It needs only a checkout, finishes in minutes, and nobody can approve a change to a
 #    manifest a lesson shows on read-through alone.
 # 2. The cluster suite builds a cluster from nothing and runs every lesson that needs a live
@@ -12,15 +12,14 @@ name: smoke
 #    request: it takes far longer than a review should wait, and a push-triggered run that is
 #    cancelled by the next push proves nothing.
 # 3. The cluster suite runs on ONE Argo CD version: v3.5.3, the version the course pins
-#    (ARGOCD_PIN in test/versions.env), records on, and commits in bootstrap/install.yaml. A student
-#    following the course installs exactly that version, so that is the version CI has to defend.
-#    The earlier three-minor matrix tested versions no lesson is recorded on, and its failures
+#    (ARGOCD_PIN in test/versions.env), uses in every lesson, and commits in bootstrap/install.yaml.
+#    A student following the course installs exactly that version, so that is the version CI has
+#    to defend.
+#    The earlier three-minor matrix tested versions no lesson uses, and its failures
 #    (for example "install.yaml does not pin v3.3.14") were artifacts of the matrix, not defects in
 #    a lesson. Moving the pin is a course decision; when it moves, versions.env moves with it.
 # 4. Every job has a 60-minute ceiling, so a hung step fails loudly instead of holding a runner
 #    for six hours.
-#
-# Decision record: D-342 (2026-10-03).
 
 on:
   pull_request:
@@ -49,7 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -sfL https://get.k3s.io | sh -
-          mkdir -p ~/.kube && sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config && sudo chown "$(id -u):$(id -g)" ~/.kube/config  # a user-owned COPY, as S02 teaches; never chmod the original
+          mkdir -p ~/.kube && sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config && sudo chown "$(id -u):$(id -g)" ~/.kube/config  # a user-owned COPY, as the cluster setup lesson teaches; never chmod the original
           echo "KUBECONFIG=$HOME/.kube/config" >> "$GITHUB_ENV"
           export KUBECONFIG=$HOME/.kube/config
           for i in $(seq 1 60); do kubectl get nodes 2>/dev/null | grep -q " Ready " && break; sleep 3; done
@@ -69,7 +68,7 @@ jobs:
           kubectl wait --for=condition=Established $argo_crds --timeout=10s
       - run: ./test/smoke/lint_repo.sh
       # The per-lesson repo tier: every lesson whose claim can be checked from a checkout alone.
-      # Cheap enough to run on every PR, which is the point — this is the tier that catches a
+      # Cheap enough to run on every PR, which is the point: this is the tier that catches a
       # manifest moving out from under a lesson.
       - run: ./test/smoke/run_all.sh repo
 
@@ -86,7 +85,7 @@ jobs:
       - name: Install k3s (a cluster built from nothing, every run)
         run: |
           curl -sfL https://get.k3s.io | sh -
-          mkdir -p ~/.kube && sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config && sudo chown "$(id -u):$(id -g)" ~/.kube/config  # a user-owned COPY, as S02 teaches; never chmod the original
+          mkdir -p ~/.kube && sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config && sudo chown "$(id -u):$(id -g)" ~/.kube/config  # a user-owned COPY, as the cluster setup lesson teaches; never chmod the original
           echo "KUBECONFIG=$HOME/.kube/config" >> "$GITHUB_ENV"
 
       - name: Wait for the node
@@ -119,12 +118,12 @@ jobs:
           kubectl -n argocd logs deploy/argocd-repo-server --tail=100 || true
           kubectl -n argocd logs statefulset/argocd-application-controller --tail=100 || true
 
-  runbook-drift:
-    name: runbook / test drift
+  lesson-drift:
+    name: lesson / test drift
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Every command a lesson shows must exist in that lesson's smoke script
-        run: ./test/check_runbook_drift.sh
+      - name: Every smoke script names its lesson, declares a tier, and references only real repo paths
+        run: ./test/check_lesson_drift.sh

@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
-# ACD-156
-# S12 L02 — one ServiceMonitor selector covers all three Argo CD metrics services because all
+# lesson: s12_l02 A ServiceMonitor and alerts for Argo CD's own health
+# One ServiceMonitor selector covers all three Argo CD metrics services because all
 # three name their port literally "metrics", and the PrometheusRule this lesson writes must
 # actually parse before it is ever trusted at 3am.
 #
 # The lesson stands up Prometheus Operator itself as a dependency (this course does not install
 # it anywhere earlier) and proves two things: the ServiceMonitor's label selector genuinely
 # reaches all three services, and the alert rules are syntactically valid. The full "which alert
-# fires first under load" race is a multi-minute timing test this script does not attempt —
-# that is a judgment call for a human watching the take, not a boolean CI can assert honestly.
+# fires first under load" race is a multi-minute timing test this script does not attempt:
+# that is a judgment call for a human watching it happen, not a boolean CI can assert honestly.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 lesson S12-L02 "one label selector reaches all three Argo CD metrics services, and both alert rules parse"
 tier cluster
 
-step "all three Argo CD metrics services name their port literally 'metrics' — what makes one selector cover all three"
+step "all three Argo CD metrics services name their port literally 'metrics': what makes one selector cover all three"
 for svc in argocd-metrics argocd-server-metrics argocd-repo-server; do
   port_name="$(kubectl get svc "${svc}" -n argocd -o jsonpath='{.spec.ports[?(@.port==8082 || @.port==8083 || @.port==8084)].name}' 2>/dev/null || true)"
   if printf '%s' "${port_name}" | grep -qw metrics; then
     _pass "${svc} names its metrics port 'metrics'"
   else
-    _fail "${svc} does not expose a port literally named 'metrics' (got: '${port_name}') — the ServiceMonitor's single selector would miss it"
+    _fail "${svc} does not expose a port literally named 'metrics' (got: '${port_name}'): the ServiceMonitor's single selector would miss it"
   fi
 done
 
-step "Prometheus Operator's CRDs are installed — the lesson's own precondition, proven rather than assumed"
+step "Prometheus Operator's CRDs are installed: the lesson's own precondition, proven rather than assumed"
 if kubectl get crd servicemonitors.monitoring.coreos.com prometheusrules.monitoring.coreos.com >/dev/null 2>&1; then
   _pass "ServiceMonitor and PrometheusRule CRDs are present"
 else
-  _fail "Prometheus Operator CRDs are missing — install kube-prometheus-stack per this lesson's runbook before recording"
+  _fail "Prometheus Operator CRDs are missing: install kube-prometheus-stack as the lesson does before running this"
 fi
 
 step "the PrometheusRule this lesson writes is syntactically valid before it is ever applied"

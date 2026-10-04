@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# ACD-167
-# S12 L04 — the Notifications controller ships IN-TREE with Argo CD, and a subscription scoped
+# lesson: s12_l04 Scoping a notification subscription so it does not flood the channel
+# The Notifications controller ships IN-TREE with Argo CD, and a subscription scoped
 # to one Application and one trigger fires on that failure and stays silent on everything else.
 #
 # "In-tree" is a repo-tier fact: the pinned v3.5.3 install manifest this course carries already
-# defines argocd-notifications-controller as one of its own Deployments — nobody installs a
-# separate component for it. The live half of the claim — a scoped on-sync-failed subscription
-# fires once and never on the healthy re-sync that follows — needs a real cluster and a real
+# defines argocd-notifications-controller as one of its own Deployments: nobody installs a
+# separate component for it. The live half of the claim: a scoped on-sync-failed subscription
+# fires once and never on the healthy re-sync that follows: needs a real cluster and a real
 # delivery channel, so it stays a cluster-tier proof against the controller's own log rather than
 # an actual Slack workspace.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 lesson S12-L04 "the Notifications controller is in-tree, and a scoped subscription fires on failure only, never on the next healthy sync"
 tier cluster
 
-step "repo-tier: argocd-notifications-controller ships inside the pinned core install — nothing separate to install"
+step "repo-tier: argocd-notifications-controller ships inside the pinned core install: nothing separate to install"
 assert_file_contains "bootstrap/install.yaml" 'name: argocd-notifications-controller' \
   "the pinned v3.5.3 install manifest already defines argocd-notifications-controller"
 
@@ -22,7 +22,7 @@ step "the controller is actually running from that same install, not a second co
 if kubectl get deploy argocd-notifications-controller -n argocd >/dev/null 2>&1; then
   _pass "argocd-notifications-controller is live in the argocd namespace, from the core install"
 else
-  _fail "argocd-notifications-controller is not running — re-check the core install applied cleanly"
+  _fail "argocd-notifications-controller is not running: re-check the core install applied cleanly"
 fi
 
 step "the notifications catalog's built-in triggers exist once its install.yaml lands"
@@ -66,7 +66,7 @@ EOF
 
 subscribed="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.metadata.annotations}' | grep -c 'subscribe\.on-sync-failed\.slack' || true)"
 if [ "${subscribed}" -ge 1 ]; then
-  _pass "subscription lands as a per-Application annotation, scoped to on-sync-failed only — not a ConfigMap-wide subscription"
+  _pass "subscription lands as a per-Application annotation, scoped to on-sync-failed only: not a ConfigMap-wide subscription"
 else
   _fail "the subscription annotation did not land on ${APP}"
 fi

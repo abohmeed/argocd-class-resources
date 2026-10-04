@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# ACD-128
-# S04 L08 — argocd-cm's `repositories` key is silently ignored on 3.0+; a labeled Secret is
+# lesson: s04_l08 Registering private repositories with Argo CD
+# Argocd-cm's `repositories` key is silently ignored on 3.0+; a labeled Secret is
 # what actually registers a repository, and a repo-creds Secret's url is a prefix, not an exact
 # match.
 #
 # The trap this lesson demonstrates is specifically the SILENCE: kubectl accepts the argocd-cm
 # patch without complaint, and the resulting sync failure never mentions argocd-cm or the
-# repositories key at all — a generic auth error, nothing pointing back at the config file that
+# repositories key at all: a generic auth error, nothing pointing back at the config file that
 # is actually the problem. This script reproduces exactly that: patch argocd-cm the pre-3.0 way,
 # confirm Argo CD registered nothing, THEN register the real Secret and confirm `argocd repo
 # list` picks it up. It also proves the repo-creds prefix match by registering credentials for a
@@ -38,7 +38,7 @@ step "confirm the server is actually 3.x, where this lesson's whole premise hold
 ver="$(argocd version --short 2>/dev/null | grep -oE 'v3\.[0-9]+' | head -1 || true)"
 case "${ver}" in
   v3.*) _pass "argocd server reports ${ver}" ;;
-  *) _fail "could not confirm an Argo CD 3.x server — this lesson's premise (the keys were removed in 3.0) needs one" ;;
+  *) _fail "could not confirm an Argo CD 3.x server: this lesson's premise (the keys were removed in 3.0) needs one" ;;
 esac
 
 step "the pre-3.0 argocd-cm patch is accepted by Kubernetes but registers nothing"
@@ -53,9 +53,9 @@ data:
 PATCHEOF
 sleep 5
 if argocd repo list 2>/dev/null | grep -qF "${REPO}"; then
-  _fail "argocd repo list shows ${REPO} after ONLY the argocd-cm patch — the repositories key is being read again, and this lesson's whole premise is gone"
+  _fail "argocd repo list shows ${REPO} after ONLY the argocd-cm patch: the repositories key is being read again, and this lesson's whole premise is gone"
 else
-  _pass "argocd-cm's repositories key changed nothing — argocd repo list still does not know about ${REPO}"
+  _pass "argocd-cm's repositories key changed nothing: argocd repo list still does not know about ${REPO}"
 fi
 
 step "the real answer: a Secret labeled argocd.argoproj.io/secret-type: repository"
@@ -74,9 +74,9 @@ stringData:
 SECEOF
 sleep 5
 if argocd repo list 2>/dev/null | grep -qF "${REPO}"; then
-  _pass "argocd repo list now shows ${REPO} — registered by the labeled Secret, not the ConfigMap"
+  _pass "argocd repo list now shows ${REPO}: registered by the labeled Secret, not the ConfigMap"
 else
-  _fail "the labeled repository Secret did not register ${REPO} — this lesson's fix does not reproduce"
+  _fail "the labeled repository Secret did not register ${REPO}: this lesson's fix does not reproduce"
 fi
 
 step "repo-creds matches by HOST PREFIX, not an exact repository URL"
@@ -95,7 +95,7 @@ CREDEOF
 sleep 5
 creds_line="$(argocd repo list 2>/dev/null | grep -F 'https://github.com/abohmeed' || true)"
 if [ -n "${creds_line}" ]; then
-  _pass "a repo-creds Secret scoped to https://github.com/abohmeed is visible — it covers every repository under that host, not one exact URL"
+  _pass "a repo-creds Secret scoped to https://github.com/abohmeed is visible: it covers every repository under that host, not one exact URL"
 else
   _fail "the repo-creds Secret did not register as a host-level credential template"
 fi

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# ACD-118
-# S06 L03 — why a plain Job isn't enough.
+# lesson: s06_l03 Why a plain Job isn't enough for one-shot sync work
+# Why a plain Job isn't enough.
 #
 # The claim is a Kubernetes API-server fact, not an Argo CD one: a live Job's `spec.template` is
-# immutable, so editing a tracked Job's command and re-applying is REJECTED at the API level — the
+# immutable, so editing a tracked Job's command and re-applying is REJECTED at the API level: the
 # object on the cluster never changes. That is the mechanism the lesson explains ("argocd app diff
 # sees nothing" is a direct consequence of the live spec never moving); it is proven here with
 # plain kubectl against a scratch Job, without pushing a commit to the companion repo just to drive
 # an `argocd app diff` for a corollary that follows automatically once the API-level fact holds.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S06-L03 "a live Job's spec.template is immutable — the API server rejects the edit, so nothing ever runs a second time"
+lesson S06-L03 "a live Job's spec.template is immutable: the API server rejects the edit, so nothing ever runs a second time"
 tier cluster
 
 # This lesson is proven through Argo CD's own API layer, so the CLI needs a session. On a
@@ -45,7 +45,7 @@ spec:
           command: ["sh", "-c", "echo original-command"]
 EOF
 kubectl wait --for=condition=complete job/probe -n "${NS}" --timeout=90s >/dev/null 2>&1 \
-  || _fail "scratch Job never completed — cannot test immutability against a Job that isn't even running"
+  || _fail "scratch Job never completed: cannot test immutability against a Job that isn't even running"
 first_completion="$(kubectl get job probe -n "${NS}" -o jsonpath='{.status.completionTime}')"
 _pass "Job completed at ${first_completion}"
 
@@ -67,12 +67,12 @@ spec:
 EOF
 )"
 if printf '%s' "${out}" | grep -qiE 'immutable|field is immutable|may not be updated'; then
-  _pass "the API server rejected the edit as immutable — exactly what the lesson says happens"
+  _pass "the API server rejected the edit as immutable: exactly what the lesson says happens"
 else
-  _fail "editing spec.template did NOT get rejected as immutable (server said: ${out}) — this lesson's central claim does not reproduce against the current Kubernetes API; RESTAGE before recording"
+  _fail "editing spec.template did NOT get rejected as immutable (server said: ${out}): this lesson's central claim does not reproduce against the current Kubernetes API"
 fi
 
-step "confirm the live Job genuinely never re-ran — same completion time, no second attempt"
+step "confirm the live Job genuinely never re-ran: same completion time, no second attempt"
 kubectl apply -f - >/dev/null 2>&1 <<EOF || true
 apiVersion: batch/v1
 kind: Job
@@ -90,7 +90,7 @@ spec:
 EOF
 second_completion="$(kubectl get job probe -n "${NS}" -o jsonpath='{.status.completionTime}')"
 [ "${first_completion}" = "${second_completion}" ] \
-  && _pass "completion time is unchanged (${second_completion}) — the edited logic never ran" \
-  || _fail "completion time changed from ${first_completion} to ${second_completion} — something re-ran the Job, which should be impossible for an unrecreated live Job"
+  && _pass "completion time is unchanged (${second_completion}): the edited logic never ran" \
+  || _fail "completion time changed from ${first_completion} to ${second_completion}: something re-ran the Job, which should be impossible for an unrecreated live Job"
 
 smoke_done

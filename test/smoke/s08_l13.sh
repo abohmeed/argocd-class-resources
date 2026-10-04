@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# ACD-199
-# S08 L13 — Operating ApplicationSets safely: deletion, the alpha Web UI, the rare generators.
+# lesson: s08_l13 Deleting an ApplicationSet safely, the alpha Web UI, and the full generator roster
+# Operating ApplicationSets safely: deletion, the alpha Web UI, the rare generators.
 #
 # The lesson's central, checkable claim is the deletion contrast: by default, deleting an
 # ApplicationSet cascades and takes its generated Applications' live resources with it
 # (Deployments and Services included, not just the Application objects); with
 # preserveResourcesOnDeletion: true, the SAME delete removes the Application objects but leaves
 # the live Deployments and Services running, untouched. This runs entirely on the single
-# dev/hub cluster — no multi-cluster dependency — so it is fully checkable here. The Web UI half
+# dev/hub cluster: no multi-cluster dependency, so it is fully checkable here. The Web UI half
 # (Steps 5-7) needs a browser and is not attempted.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
@@ -68,7 +68,7 @@ deployments_left() {
     | grep -cE "${NS1}|${NS2}|${NS3}" || true
 }
 
-step "Step 1 — build the fleet, confirm three Applications Synced/Healthy with running Deployments"
+step "Step 1: build the fleet, confirm three Applications Synced/Healthy with running Deployments"
 base_appset "" | kubectl apply -f - >/dev/null
 wait_for_sync "payments-dev" 180
 wait_for_sync "search-dev" 180
@@ -77,7 +77,7 @@ n="$(deployments_left)"
 [ "${n}" -eq 3 ] && _pass "3 Deployments running (payments, search, loyalty)" \
   || _fail "expected 3 Deployments across the three -dev namespaces, found ${n}"
 
-step "Step 2 — the default cascade: deleting the ApplicationSet takes the Deployments with it"
+step "Step 2: the default cascade: deleting the ApplicationSet takes the Deployments with it"
 kubectl delete applicationset "${APPSET}" -n argocd --wait=true --timeout=90s >/dev/null
 remaining=""
 for _ in $(seq 1 12); do
@@ -90,19 +90,19 @@ done
 
 n="$(deployments_left)"
 [ "${n}" -eq 0 ] \
-  && _pass "the default cascade removed the Deployments too — not paused, not out of sync, gone" \
-  || _fail "expected 0 Deployments left after the default cascade, found ${n} — the default deletion policy no longer cascades to live resources; RESTAGE BEFORE RECORDING"
+  && _pass "the default cascade removed the Deployments too: not paused, not out of sync, gone" \
+  || _fail "expected 0 Deployments left after the default cascade, found ${n}: the default deletion policy no longer cascades to live resources"
 
-step "Step 3 — rebuild WITH preserveResourcesOnDeletion: true"
+step "Step 3: rebuild WITH preserveResourcesOnDeletion: true"
 base_appset "true" | kubectl apply -f - >/dev/null
 wait_for_sync "payments-dev" 180
 wait_for_sync "search-dev" 180
 wait_for_sync "loyalty-dev" 180
 preserve_flag="$(kubectl get applicationset "${APPSET}" -n argocd -o jsonpath='{.spec.preserveResourcesOnDeletion}')"
 [ "${preserve_flag}" = "true" ] && _pass "preserveResourcesOnDeletion: true is actually applied before the delete" \
-  || _fail "spec.preserveResourcesOnDeletion reads '${preserve_flag}', expected true — the delete below would prove nothing"
+  || _fail "spec.preserveResourcesOnDeletion reads '${preserve_flag}', expected true: the delete below would prove nothing"
 
-step "Step 3 — delete it again: Application objects gone, Deployments and Services survive, still serving"
+step "Step 3: delete it again: Application objects gone, Deployments and Services survive, still serving"
 kubectl delete applicationset "${APPSET}" -n argocd --wait=true --timeout=90s >/dev/null
 remaining=""
 for _ in $(seq 1 12); do
@@ -111,13 +111,13 @@ for _ in $(seq 1 12); do
   [ "${remaining}" -eq 0 ] && break
 done
 [ "${remaining}" = 0 ] && _pass "all three Application OBJECTS are gone, same as the default case" \
-  || _fail "${remaining} Application(s) still exist — preserveResourcesOnDeletion should not keep the Application object itself"
+  || _fail "${remaining} Application(s) still exist: preserveResourcesOnDeletion should not keep the Application object itself"
 
 n="$(deployments_left)"
 if [ "${n}" -eq 3 ]; then
-  _pass "all 3 Deployments are STILL RUNNING after the ApplicationSet and its Applications are gone — the lesson's central contrast holds"
+  _pass "all 3 Deployments are STILL RUNNING after the ApplicationSet and its Applications are gone: the lesson's central contrast holds"
 else
-  _fail "expected 3 Deployments to survive with preserveResourcesOnDeletion: true, found ${n} — the fleet came through unmanaged AND unharmed only if this holds; RESTAGE BEFORE RECORDING"
+  _fail "expected 3 Deployments to survive with preserveResourcesOnDeletion: true, found ${n}: the fleet came through unmanaged AND unharmed only if this holds"
 fi
 
 ready="$(kubectl get deployment payments -n "${NS1}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"

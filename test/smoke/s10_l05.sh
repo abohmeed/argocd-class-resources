@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# ACD-144
-# S10 L05 — automated promotion and abort with AnalysisTemplates.
+# lesson: s10_l05 Automated promotion and abort with AnalysisTemplates
+# Automated promotion and abort with AnalysisTemplates.
 #
-# The load-bearing claim, proven by execution and recorded in FACTCHECK-RESULTS.md (J-1): the
+# The load-bearing claim, proven by running it: the
 # Web metric provider returns Successful on any response that fails to parse as JSON, WITHOUT
-# evaluating successCondition at all — so a Web-provider gate against a plain-text service like
+# evaluating successCondition at all, so a Web-provider gate against a plain-text service like
 # storefront can never fail, silently testing nothing. The Job provider is what the lessons use
 # for any real pass/fail gate. This is fully reproducible on a single cluster: a canary Rollout
 # with an AnalysisTemplate wired at the first step, using the Job provider exactly as the
-# runbook specifies, watched promoting a good version unattended and aborting a broken one
-# unattended. No Gateway, no traffic-routing plugin needed — analysis and abort are the
+# lesson specifies, watched promoting a good version unattended and aborting a broken one
+# unattended. No Gateway, no traffic-routing plugin needed: analysis and abort are the
 # Rollouts controller's own mechanics, independent of which traffic router (if any) is wired in.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
@@ -25,30 +25,30 @@ cleanup() {
 trap cleanup EXIT
 
 step "repo-side guard: no committed AnalysisTemplate in this repo uses the Web provider for a pass/fail gate"
-# The Web provider's silent-pass-on-non-JSON behaviour (FACTCHECK-RESULTS.md J-1) makes it the
+# The Web provider's silent-pass-on-non-JSON behaviour makes it the
 # wrong choice for any gate that is supposed to be able to fail. If a future edit adds one, this
-# is the check that should catch it before it reaches camera.
+# is the check that should catch it before it reaches a student.
 if [ -d "${REPO_ROOT}/platform/rollouts" ]; then
   hits="$(grep -rIl 'kind: AnalysisTemplate' "${REPO_ROOT}/platform/rollouts" 2>/dev/null || true)"
   bad=""
-  # A while/read loop, not `for f in ${hits}` — REPO_ROOT contains spaces ("Mastering GitOps
+  # A while/read loop, not `for f in ${hits}`: REPO_ROOT contains spaces ("Mastering GitOps
   # with Argo CD"), and an unquoted word-split would tear one path into several bogus ones.
   while IFS= read -r f; do
     [ -z "${f}" ] && continue
-    # A metric's provider is a nested key — "web:" indented directly under "provider:" — not
+    # A metric's provider is a nested key ("web:" indented directly under "provider:") not
     # the word "web" appearing anywhere (e.g. in a comment explaining why it is banned).
     grep -qE '^[[:space:]]+web:[[:space:]]*$' "${f}" && bad="${bad}
   ${f#"${REPO_ROOT}"/}"
   done <<< "${hits}"
   if [ -z "${hits}" ]; then
-    _pass "no AnalysisTemplate committed yet — S10 L05 authors it live"
+    _pass "no AnalysisTemplate committed yet: this lesson authors it live"
   elif [ -z "${bad}" ]; then
     _pass "every committed AnalysisTemplate avoids the Web provider"
   else
-    _fail "an AnalysisTemplate uses the Web provider for a gate — it returns Successful on non-JSON without evaluating successCondition:${bad}"
+    _fail "an AnalysisTemplate uses the Web provider for a gate: it returns Successful on non-JSON without evaluating successCondition:${bad}"
   fi
 else
-  _pass "platform/rollouts/ not committed yet — S10 L05 authors the AnalysisTemplate live"
+  _pass "platform/rollouts/ not committed yet: this lesson authors the AnalysisTemplate live"
 fi
 
 step "install Argo Rollouts ${ARGO_ROLLOUTS_VERSION}"
@@ -149,7 +149,7 @@ roll_out_canary "probe-v1" "probe-v1"
 if poll_rollout_phase "Healthy" 180 >/dev/null; then
   _pass "first canary (matching analysis) promoted to Healthy unattended"
 else
-  _fail "first canary never reached Healthy — the Job-provider analysis did not pass a correct banner; RESTAGE BEFORE RECORDING"
+  _fail "first canary never reached Healthy: the Job-provider analysis did not pass a correct banner"
 fi
 
 step "roll a MISMATCHED banner forward and watch the same Job provider abort it unattended"
@@ -165,13 +165,13 @@ while [ "$(date +%s)" -lt "${deadline}" ]; do
   sleep 5
 done
 if [ "${degraded}" = yes ]; then
-  _pass "the mismatched canary was aborted (Degraded) by the Job-provider analysis, unattended — the exact guard a Web-provider gate would have silently skipped"
+  _pass "the mismatched canary was aborted (Degraded) by the Job-provider analysis, unattended: the exact guard a Web-provider gate would have silently skipped"
 else
-  _fail "the mismatched canary was NOT aborted within 180s (last phase: ${phase:-?}) — the Job-provider abort behaviour does not reproduce; RESTAGE BEFORE RECORDING"
+  _fail "the mismatched canary was NOT aborted within 180s (last phase: ${phase:-?}): the Job-provider abort behaviour does not reproduce"
 fi
 
 analysisrun_failed="$(kubectl get analysisrun -n "${NS}" -o jsonpath='{.items[?(@.status.phase=="Failed")].metadata.name}' 2>/dev/null || true)"
 [ -n "${analysisrun_failed}" ] && _pass "a Failed AnalysisRun is readable for why it aborted (${analysisrun_failed})" \
-  || _fail "no Failed AnalysisRun found — the abort reason would not be readable on camera"
+  || _fail "no Failed AnalysisRun found: the abort reason would not be readable"
 
 smoke_done

@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# ACD-106
-# S02 L08 — exposing Argo CD over real TLS, and the `sectionName` trap.
+# lesson: s02_l08 Exposing Argo CD over TLS with the Kubernetes Gateway API
+# Exposing Argo CD over real TLS, and the `sectionName` trap.
 #
 # The lesson's whole troubleshooting table points at one silent failure mode: an HTTPRoute
 # with no `sectionName` in `parentRefs` attaches to EVERY listener on the Gateway, not just
-# `websecure` — so a viewer would reach Argo CD over PLAIN HTTP on port 8000, defeating the
+# `websecure`, so a visitor would reach Argo CD over PLAIN HTTP on port 8000, defeating the
 # entire point of the lesson, while `kubectl get httproute` still reports `Accepted: True` and
 # nothing on screen looks wrong. That is the one thing that actually matters here: not "does an
 # HTTPRoute exist" but "does leaving out sectionName really cause the failure this lesson warns
 # about, and does the lesson's own httproute.yaml avoid it."
 #
 # This builds the real, shared Gateway/TLS chain the lesson builds (Traefik's Gateway provider,
-# cert-manager, the ClusterIssuer/Certificate) — applying the SAME manifests the runbook shows
-# is idempotent and is what S03 L04 and S10 L04 are documented to depend on afterwards
-# (`_metadata/recording-order.md`), so this script deliberately does NOT tear that shared state
-# down. Only the two probe HTTPRoutes it adds to prove the trap are cleaned up.
+# cert-manager, the ClusterIssuer/Certificate): applying the SAME manifests the lesson shows
+# is idempotent, and later lessons (the custom health check in s03_l04.sh and the canary
+# lesson in s10_l04.sh) depend on that chain, so this script deliberately does NOT tear that
+# shared state down. Only the two probe HTTPRoutes it adds to prove the trap are cleaned up.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 lesson S02-L08 "an HTTPRoute needs sectionName: websecure, or it silently attaches to the plain-HTTP listener too"
@@ -30,9 +30,9 @@ trap cleanup EXIT
 step "Gateway API CRDs are present (k3s ships them; nothing to install)"
 kubectl get crd gatewayclasses.gateway.networking.k8s.io >/dev/null 2>&1 \
   && _pass "GatewayClass CRD present" \
-  || _fail "no gatewayclasses CRD — this k3s build does not ship Gateway API; the whole lesson's premise breaks"
+  || _fail "no gatewayclasses CRD: this k3s build does not ship Gateway API; the whole lesson's premise breaks"
 
-step "Traefik's Gateway provider and TLS listener (idempotent — same manifest the lesson types)"
+step "Traefik's Gateway provider and TLS listener (idempotent: same manifest the lesson types)"
 sudo tee /var/lib/rancher/k3s/server/manifests/traefik-config.yaml >/dev/null <<'YAML'
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
@@ -67,7 +67,7 @@ case "${listeners}" in
     _pass "Gateway has both listeners: ${listeners}"
     ;;
   *)
-    _fail "Gateway is missing a listener (got: '${listeners:-none}') — the HelmChartConfig was not picked up by k3s's helm-controller"
+    _fail "Gateway is missing a listener (got: '${listeners:-none}'): the HelmChartConfig was not picked up by k3s's helm-controller"
     ;;
 esac
 
@@ -105,7 +105,7 @@ for _ in $(seq 1 24); do
   sleep 5
 done
 [ "${secret_ok}" = yes ] && _pass "TLS Secret issued for the websecure listener" \
-  || _fail "argocd-gateway-tls Secret never appeared — the websecure listener has no certificate to terminate with"
+  || _fail "argocd-gateway-tls Secret never appeared: the websecure listener has no certificate to terminate with"
 
 step "point argocd-server at plain HTTP behind the Gateway (TLS terminates once, at the edge)"
 kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge -p '{"data":{"server.insecure":"true"}}' >/dev/null
@@ -114,8 +114,8 @@ kubectl rollout status deploy/argocd-server -n argocd --timeout=120s >/dev/null 
   && _pass "argocd-server restarted in insecure (plain-HTTP-behind-TLS) mode" \
   || _fail "argocd-server did not roll out after the insecure patch"
 
-step "the lesson's own httproute.yaml attaches ONLY to websecure — the correct, non-trap form"
-kubectl apply -f "${REPO_ROOT}/httproute.yaml" >/dev/null 2>&1 || _fail "could not apply httproute.yaml from the repo root — does it exist? this lesson's Step 5 creates it"
+step "the lesson's own httproute.yaml attaches ONLY to websecure: the correct, non-trap form"
+kubectl apply -f "${REPO_ROOT}/httproute.yaml" >/dev/null 2>&1 || _fail "could not apply httproute.yaml from the repo root: does it exist? this lesson's Step 5 creates it"
 accepted=""
 for _ in $(seq 1 12); do
   accepted="$(kubectl get httproute argocd-server -n argocd -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null)"
@@ -126,9 +126,9 @@ done
 
 parent_count="$(kubectl get httproute argocd-server -n argocd -o jsonpath='{.status.parents}' 2>/dev/null | grep -o 'sectionName' | wc -l | tr -d ' ')"
 if [ "${parent_count}" = "1" ]; then
-  _pass "httproute.yaml attached to exactly one listener (websecure) — TLS-only, as the lesson intends"
+  _pass "httproute.yaml attached to exactly one listener (websecure): TLS-only, as the lesson intends"
 else
-  _fail "httproute.yaml attached to ${parent_count} listeners, not 1 — it is reachable over plain HTTP too, exactly the silent trap the runbook's troubleshooting table warns about; check sectionName in parentRefs"
+  _fail "httproute.yaml attached to ${parent_count} listeners, not 1: it is reachable over plain HTTP too, exactly the silent trap the lesson warns about; check sectionName in parentRefs"
 fi
 
 step "prove the trap is real: the SAME route, minus sectionName, attaches to BOTH listeners"
@@ -152,9 +152,9 @@ YAML
 sleep 5
 bad_parents="$(kubectl get httproute "${PROBE_BAD}" -n argocd -o jsonpath='{.status.parents}' 2>/dev/null | grep -o 'sectionName' | wc -l | tr -d ' ')"
 if [ "${bad_parents}" -ge 2 ]; then
-  _pass "confirmed: dropping sectionName attaches to ${bad_parents} listeners (plain HTTP included) — this is exactly the trap the lesson warns about, and it IS still real"
+  _pass "confirmed: dropping sectionName attaches to ${bad_parents} listeners (plain HTTP included): this is exactly the trap the lesson warns about, and it IS still real"
 else
-  _fail "dropping sectionName only attached to ${bad_parents} listener(s) — the trap this lesson warns about no longer reproduces on this Gateway API version; the troubleshooting table's warning may now be inaccurate"
+  _fail "dropping sectionName only attached to ${bad_parents} listener(s): the trap this lesson warns about no longer reproduces on this Gateway API version; the troubleshooting table's warning may now be inaccurate"
 fi
 
 smoke_done

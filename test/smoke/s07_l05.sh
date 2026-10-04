@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# ACD-101
-# S07 L05 — project roles and tokens: automation that isn't cluster-admin.
+# lesson: s07_l05 Argo CD project roles and tokens: scoped CI credentials instead of cluster-admin
+# Project roles and tokens: automation that isn't cluster-admin.
 #
 # The claim: a project role token granted exactly one action on one project (`sync` on `checkout`)
-# works for that one thing, in that one project, and is denied everywhere else — including a
+# works for that one thing, in that one project, and is denied everywhere else: including a
 # different project's app, which the token's role never named at all.
 #
 # This lesson tests Argo CD's OWN internal RBAC (policy evaluated by argocd-server against a
-# token), which only fires through the real API — a kubectl-only test would bypass it entirely.
-# The runbook logs in against `argocd.local`, the producer's TLS gateway from S02 L08; a bare CI
+# token), which only fires through the real API: a kubectl-only test would bypass it entirely.
+# The lesson logs in against `argocd.local`, the TLS gateway built in s02_l08.sh; a bare CI
 # cluster (see test/smoke/s02_control_plane.sh) never builds that gateway, so this port-forwards
 # straight to the argocd-server Service instead. Same RBAC evaluation, no gateway dependency.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
@@ -35,7 +35,7 @@ cleanup() {
 trap cleanup EXIT
 
 if ! command -v argocd >/dev/null 2>&1; then
-  _fail "argocd CLI not on PATH — project-role tokens and their enforcement only exist behind the real API, not kubectl"
+  _fail "argocd CLI not on PATH: project-role tokens and their enforcement only exist behind the real API, not kubectl"
 fi
 
 step "fence a throwaway project, and register one in-scope app and one out-of-scope app (different project)"
@@ -44,7 +44,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata: {name: ${PROJ}, namespace: argocd}
 spec:
-  description: "S07 L05 smoke probe — not the real checkout project."
+  description: "Smoke-test probe: not the real checkout project."
   sourceRepos: ["${REPO}"]
   destinations:
     - {server: "https://kubernetes.default.svc", namespace: "${NS}"}
@@ -70,7 +70,7 @@ spec:
   syncPolicy: {syncOptions: ["CreateNamespace=true"]}
 EOF
 
-step "reach argocd-server directly (no producer TLS gateway on a bare CI cluster)"
+step "reach argocd-server directly (no TLS gateway on a bare CI cluster)"
 kubectl -n argocd port-forward svc/argocd-server "${PORT}:443" >/tmp/s07l05-portforward.log 2>&1 &
 PF_PID=$!
 up="no"
@@ -78,10 +78,10 @@ for _ in $(seq 1 20); do
   curl -sk "https://localhost:${PORT}/healthz" >/dev/null 2>&1 && { up="yes"; break; }
   sleep 1
 done
-[ "${up}" = "yes" ] || _fail "argocd-server never answered on the port-forward — cannot test RBAC without the real API"
+[ "${up}" = "yes" ] || _fail "argocd-server never answered on the port-forward: cannot test RBAC without the real API"
 
 ADMIN_PW="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 --decode)"
-[ -n "${ADMIN_PW}" ] || _fail "no argocd-initial-admin-secret on this cluster — cannot obtain admin credentials"
+[ -n "${ADMIN_PW}" ] || _fail "no argocd-initial-admin-secret on this cluster: cannot obtain admin credentials"
 argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 _pass "logged in as admin over the port-forward"
 
@@ -94,16 +94,16 @@ _pass "role ${ROLE} created with one policy (sync, *) and a token issued"
 
 step "the token syncs the in-scope app"
 if argocd app sync "${APP_IN}" --grpc-web --auth-token "${TOKEN}" >/dev/null 2>&1; then
-  _pass "token synced ${APP_IN}, inside its own project — exactly what the one policy line grants"
+  _pass "token synced ${APP_IN}, inside its own project: exactly what the one policy line grants"
 else
   _fail "the token could not sync ${APP_IN}, which its own role's sync/* policy should cover"
 fi
 
 step "the SAME token is denied on an app in a different project"
 if argocd app sync "${APP_OUT}" --grpc-web --auth-token "${TOKEN}" >/dev/null 2>&1; then
-  _fail "the ${PROJ}-scoped token synced ${APP_OUT}, which belongs to a different project — the role has no policy line naming it"
+  _fail "the ${PROJ}-scoped token synced ${APP_OUT}, which belongs to a different project: the role has no policy line naming it"
 else
-  _pass "token denied on ${APP_OUT} — the role's reach stops at its own project, exactly as the lesson claims"
+  _pass "token denied on ${APP_OUT}: the role's reach stops at its own project, exactly as the lesson claims"
 fi
 
 smoke_done

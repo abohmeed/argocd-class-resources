@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Run the per-lesson smoke suite for one tier, and report a census rather than a verdict.
 #
-#   ./test/smoke/run_all.sh repo       # needs nothing but a checkout — runs on every PR
+#   ./test/smoke/run_all.sh repo       # needs nothing but a checkout: runs on every PR
 #   ./test/smoke/run_all.sh cluster    # needs k3s + Argo CD: nightly, and on demand (Argo CD v3.5.3)
 #   ./test/smoke/run_all.sh all
 #
 # Why a census. The suite's honesty problem is not failure, it is silence: a lesson that needs a
-# browser for SSO, or a GitHub pull request, or four Multipass VMs, cannot run here — and if that
+# browser for SSO, or a GitHub pull request, or four Multipass VMs, cannot run here, and if that
 # script simply returns 0 it looks exactly like one that ran and passed. So those exit 78 and are
 # counted and NAMED in their own column. A run that prints "62 passed" while 29 scripts did
 # nothing is the failure mode this exists to make impossible.
@@ -31,7 +31,7 @@ for s in test/smoke/s[0-9][0-9]_l[0-9][0-9]*.sh; do
     *) echo "unknown tier '$WANT' (repo | cluster | all)" >&2; exit 2 ;;
   esac
 
-  # Print each script as it starts, and give each one its own ceiling (D-342): a hung script fails on
+  # Print each script as it starts, and give each one its own ceiling: a hung script fails on
   # its own and the suite moves on, instead of the whole job going silent until the job timeout.
   started=$(date +%s)
   printf '  -> %s  %s\n' "$(date -u +%H:%M:%S)" "$(basename "$s")"
@@ -58,7 +58,7 @@ done
 total=$((pass + fail + declared))
 printf '\n'
 printf '  ran and passed   %3d\n' "$pass"
-printf '  failed           %3d%s\n' "$fail" "${failed_names:+ —${failed_names}}"
+printf '  failed           %3d%s\n' "$fail" "${failed_names:+:${failed_names}}"
 printf '  declared external%3d  (not run here, and not counted as passing)\n' "$declared"
 [ "$declared" -gt 0 ] && printf '%b\n' "$declared_names"
 printf '  ----------------------\n'

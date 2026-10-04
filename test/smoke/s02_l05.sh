@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# ACD-83
-# S02 L05 — first reconciliation, and the drift `automated` on its own won't undo.
+# lesson: s02_l05 Registering an Application, and why automated sync alone will not revert a manual edit
+# First reconciliation, and the drift `automated` on its own won't undo.
 #
 # The lesson's punchline is behavioural, not textual: `automated: {}` (no selfHeal, no prune)
-# makes Argo CD DETECT a hand edit — Sync status flips to OutOfSync — but never REVERT it. If
+# makes Argo CD DETECT a hand edit: Sync status flips to OutOfSync, but never REVERT it. If
 # a future Argo CD release ever changed that default (made bare `automated` self-heal), the
 # banner would silently flip back to the Git value and the lesson's entire "it noticed, it did
-# not touch it" framing would be false on camera. So this drives a real Application through the
-# exact sequence the runbook shows and watches which half happens.
+# not touch it" point would be false. So this drives a real Application through the exact
+# sequence the lesson shows and watches which half happens.
 #
 # This does not disturb the "argocd" namespace or the shared storefront-dev Application other
-# lessons build (S02 L10 puts Argo CD under self-management; the course's real recording keeps
-# this Application registered for good). It uses its own throwaway Application/namespace name
+# lessons build (a later lesson puts Argo CD under self-management, and the course keeps this
+# Application registered for good). It uses its own throwaway Application/namespace name
 # so it can run in the same CI job as other cluster-tier scripts without colliding, and it tears
 # itself down whether it passes or fails.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
@@ -49,11 +49,11 @@ deployment_env_form() {
 }
 from_git="$(deployment_env_form)"
 case "${from_git}" in
-  *configMapKeyRef*) _pass "synced — BANNER is still wired via configMapKeyRef, from Git" ;;
-  *) _fail "no configMapKeyRef env wiring after sync — cannot run the drift check" ;;
+  *configMapKeyRef*) _pass "synced: BANNER is still wired via configMapKeyRef, from Git" ;;
+  *) _fail "no configMapKeyRef env wiring after sync: cannot run the drift check" ;;
 esac
 
-step "hand-edit the Deployment's env — this must show up as OutOfSync"
+step "hand-edit the Deployment's env: this must show up as OutOfSync"
 kubectl patch deployment storefront -n "${NS}" --type json \
   -p '[{"op":"replace","path":"/spec/template/spec/containers/0/env/0","value":{"name":"BANNER","value":"MANUALLY EDITED"}}]' >/dev/null
 kubectl rollout status deployment/storefront -n "${NS}" --timeout=90s >/dev/null 2>&1 || true
@@ -65,19 +65,19 @@ for _ in $(seq 1 24); do
   sleep 5
 done
 if [ "${sync_status}" = "OutOfSync" ]; then
-  _pass "Sync status flipped to OutOfSync — Argo CD noticed the drift"
+  _pass "Sync status flipped to OutOfSync: Argo CD noticed the drift"
 else
-  _fail "Sync status never reached OutOfSync (last: ${sync_status:-?}) — drift detection itself is broken; nothing downstream of this can be trusted"
+  _fail "Sync status never reached OutOfSync (last: ${sync_status:-?}): drift detection itself is broken; nothing downstream of this can be trusted"
 fi
 
-step "the manual edit must still be LIVE — automated alone must not have reverted it"
+step "the manual edit must still be LIVE: automated alone must not have reverted it"
 still_edited="$(deployment_env_form)"
 case "${still_edited}" in
   *'MANUALLY EDITED'*)
-    _pass "manual edit still standing — automated detected but did not revert, which is this lesson's whole point"
+    _pass "manual edit still standing: automated detected but did not revert, which is this lesson's whole point"
     ;;
   *configMapKeyRef*)
-    _fail "the manual edit was reverted with selfHeal OFF — 'automated: {}' now self-heals on its own, and the lesson's central contrast (it noticed, it did not touch it) no longer holds; RESTAGE BEFORE RECORDING"
+    _fail "the manual edit was reverted with selfHeal OFF: 'automated: {}' now self-heals on its own, and the lesson's central contrast (it noticed, it did not touch it) no longer holds"
     ;;
   *)
     _fail "unexpected env form after the edit: ${still_edited}"

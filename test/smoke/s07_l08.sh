@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# ACD-125
-# S07 L08 — logs are an RBAC resource now.
+# lesson: s07_l08 Logs are an RBAC resource now
+# Logs are an RBAC resource now.
 #
 # The claim: reading a Pod's logs through Argo CD is gated by its OWN `logs` RBAC resource,
-# entirely separate from `applications` — an account already holding create/update/delete AND the
-# S07 L07 update/*+delete/* wildcards is still refused `argocd app logs`, until an explicit
-# `p, <role>, logs, get, <proj>/*, allow` line is added. Harder to notice than L07's refusal
+# entirely separate from `applications`: an account already holding create/update/delete AND the
+# update/*+delete/* wildcards from the previous lesson is still refused `argocd app logs`, until an
+# explicit `p, <role>, logs, get, <proj>/*, allow` line is added. Harder to notice than the previous lesson's refusal
 # because there is no error, just nothing: the UI's Logs tab renders an empty pane, which is why
 # this script treats "the command errored" and "the command silently returned nothing" as the
 # SAME failure, not just the first one.
@@ -14,7 +14,7 @@
 # CI run cannot hang waiting on a log stream that never closes.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S07-L08 "logs is its own RBAC resource — full applications-level access does not grant it, only an explicit logs/get policy line does"
+lesson S07-L08 "logs is its own RBAC resource: full applications-level access does not grant it, only an explicit logs/get policy line does"
 tier cluster
 
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
@@ -40,7 +40,7 @@ cleanup() {
 trap cleanup EXIT
 
 if ! command -v argocd >/dev/null 2>&1; then
-  _fail "argocd CLI not on PATH — the logs RBAC resource is only enforced behind the real API"
+  _fail "argocd CLI not on PATH: the logs RBAC resource is only enforced behind the real API"
 fi
 
 step "fence a throwaway project, sync a throwaway app so it has real Pod logs, and a throwaway account with full applications-level RBAC but no logs line"
@@ -49,7 +49,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata: {name: ${PROJ}, namespace: argocd}
 spec:
-  description: "S07 L08 smoke probe — not the real checkout project."
+  description: "Smoke-test probe: not the real checkout project."
   sourceRepos: ["${REPO}"]
   destinations:
     - {server: "https://kubernetes.default.svc", namespace: "${NS}"}
@@ -87,12 +87,12 @@ step "full applications-level RBAC, no logs line: argocd app logs is refused, no
 argocd login "localhost:${PORT}" --insecure --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
 out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)"; rc=$?
 if [ "${rc}" -eq 0 ]; then
-  _fail "argocd app logs succeeded with no logs policy line granted — logs is not actually gated separately from applications"
+  _fail "argocd app logs succeeded with no logs policy line granted: logs is not actually gated separately from applications"
 else
-  _pass "argocd app logs refused (exit ${rc}) despite full applications-level create/update/delete — logs is a separate RBAC resource"
+  _pass "argocd app logs refused (exit ${rc}) despite full applications-level create/update/delete: logs is a separate RBAC resource"
 fi
 
-step "add the logs/get policy line — the same command now returns real output"
+step "add the logs/get policy line: the same command now returns real output"
 argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
   "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, create, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, logs, get, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null

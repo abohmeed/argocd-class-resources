@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# ACD-123
-# S10 L02 — the Rollout CRD: a separate project, wired to the same cluster.
+# lesson: s10_l02 The Argo Rollouts CRD: a separate project, wired to the same cluster
+# The Rollout CRD: a separate project, wired to the same cluster.
 #
 # The claim is behavioural: Argo Rollouts is installed SEPARATELY from Argo CD (its own CRDs,
 # its own controller), and once installed, a Rollout's PodTemplateSpec is identical to a
-# Deployment's — converting one to the other changes nothing about how the pod runs. This drives
+# Deployment's: converting one to the other changes nothing about how the pod runs. This drives
 # a real Deployment through a real conversion to a real Rollout with an empty canary{} strategy
-# (S10 L02's own placeholder, replaced by a real strategy in L03/L04) and watches it reach
-# Healthy. Single cluster throughout — S10 never leaves the hub — so this runs at cluster tier.
+# (this lesson's own placeholder, replaced by a real strategy in s10_l03.sh and s10_l04.sh) and watches it reach
+# Healthy. Single cluster throughout (this section never leaves the hub), so this runs at cluster tier.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 lesson S10-L02 "Argo Rollouts installs separately from Argo CD, and a Rollout's PodTemplateSpec is identical to a Deployment's"
@@ -32,7 +32,7 @@ poll_rollout_healthy() {
   _fail "${name} did not reach Healthy within ${timeout}s (last phase: ${phase:-?})"
 }
 
-step "install Argo Rollouts ${ARGO_ROLLOUTS_VERSION} — a separate project, a separate controller"
+step "install Argo Rollouts ${ARGO_ROLLOUTS_VERSION}: a separate project, a separate controller"
 kubectl create namespace argo-rollouts --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl apply -n argo-rollouts -f "https://github.com/argoproj/argo-rollouts/releases/download/${ARGO_ROLLOUTS_VERSION}/install.yaml" >/dev/null
 wait_for_rollout "deployment/argo-rollouts" "argo-rollouts"
@@ -59,7 +59,7 @@ spec:
 EOF
 wait_for_rollout "deployment/${NAME}" "${NS}"
 
-step "convert to a Rollout — same PodTemplateSpec, only kind and strategy move"
+step "convert to a Rollout: same PodTemplateSpec, only kind and strategy move"
 kubectl delete deployment "${NAME}" -n "${NS}" >/dev/null
 cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: argoproj.io/v1alpha1

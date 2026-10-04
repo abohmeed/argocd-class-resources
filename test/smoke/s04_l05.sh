@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# ACD-104
-# S04 L05 — Helm 4 renames --atomic/--force; the old names still work, they just warn.
+# lesson: s04_l05 Helm 4 reality: what your muscle memory gets wrong now
+# Helm 4 renames --atomic/--force; the old names still work, they just warn.
 #
 # The lesson's claim is specific and falsifiable: on Helm 4, `--atomic` and `--force` still
-# WORK when typed — Helm marks them deprecated via cobra's MarkDeprecated, which prints a
+# WORK when typed: Helm marks them deprecated via cobra's MarkDeprecated, which prints a
 # warning and leaves the flag pointed at the renamed flag's own code path, it does not remove
 # it. The one documented exception is versions 4.0.0-4.1.1 (upstream issue 31900), where
 # `--atomic` actually errors outright until 4.2.0. This script builds a disposable chart and
@@ -31,10 +31,10 @@ step "Helm 4 is actually what's installed"
 ver="$(helm version --short 2>/dev/null || true)"
 case "${ver}" in
   v4.*) _pass "helm reports ${ver}" ;;
-  *) _fail "helm reports '${ver}', not v4.x — this lesson's whole claim is Helm-4-specific" ;;
+  *) _fail "helm reports '${ver}', not v4.x: this lesson's whole claim is Helm-4-specific" ;;
 esac
 
-step "build a disposable release from S04 L04's committed chart"
+step "build a disposable release from the committed chart (s04_l04.sh)"
 assert_exists_dir "charts/storefront"
 assert_exists_file "charts/storefront/Chart.yaml"
 mkdir -p "${CHART_DIR}/templates"
@@ -49,9 +49,9 @@ out="$(helm upgrade "${RELEASE}" "${CHART_DIR}" -n "${NS}" --atomic --force 2>&1
 if printf '%s' "${out}" | grep -qiE 'rollback-on-failure'; then
   _pass "--atomic prints its rename warning (pointing at --rollback-on-failure)"
 elif [ "${rc}" -ne 0 ] && printf '%s' "${out}" | grep -qiE 'unknown flag.*atomic'; then
-  _pass "--atomic errors outright — this is the documented 4.0.0-4.1.1 regression (upstream #31900), not a defect in the lesson"
+  _pass "--atomic errors outright: this is the documented 4.0.0-4.1.1 regression (upstream #31900), not a defect in the lesson"
 else
-  _fail "--atomic neither warned about its rename nor hit the known regression — Helm's deprecation behavior changed:\n${out}"
+  _fail "--atomic neither warned about its rename nor hit the known regression: Helm's deprecation behavior changed:\n${out}"
 fi
 
 step "the renamed flags apply clean, with no deprecation warning"
@@ -62,12 +62,12 @@ else
   _fail "the renamed flags did not apply cleanly (rc=${rc}):\n${out}"
 fi
 
-step "helm repo is not deprecated — only the OCI-adjacent story changed, not this command"
+step "helm repo is not deprecated: only the OCI-adjacent story changed, not this command"
 if timeout 15 helm repo add s04l05-example https://example.com/charts >/dev/null 2>&1; then
   helm repo remove s04l05-example >/dev/null 2>&1 || true
 fi
 if helm repo --help 2>&1 | grep -qi 'deprecat'; then
-  _fail "helm repo now reports itself as deprecated — the lesson's 'still fully supported' claim no longer holds"
+  _fail "helm repo now reports itself as deprecated: the lesson's 'still fully supported' claim no longer holds"
 else
   _pass "helm repo carries no deprecation notice"
 fi

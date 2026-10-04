@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# ACD-198
-# S08 L12: Template patching, the exception the template can't express.
+# lesson: s08_l12 Template patching: the exception the template can't express
+# Template patching, the exception the template can't express.
 #
-# Re-anchored 2026-10-04 to the restored lesson (D-343). The earlier answer key moved an "edge"
+# Re-anchored 2026-10-04 to the restored lesson. The earlier answer key moved an "edge"
 # entry into another AppProject through templatePatch, and Argo CD v3.5.3 does not support
 # spec.project in a templatePatch (ApplicationSet Template docs: "The spec.project field is not
 # supported in templatePatch"), so that patch never took effect. The lesson now patches

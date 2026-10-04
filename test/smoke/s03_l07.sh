@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# ACD-138
-# S03 L07: ignoreDifferences hides a field from the diff; it does not protect it from a sync.
+# lesson: s03_l07 ignoreDifferences vs RespectIgnoreDifferences in Argo CD
+# IgnoreDifferences hides a field from the diff; it does not protect it from a sync.
 # RespectIgnoreDifferences does protect it, and only on a resource that already exists.
 #
 # Git declares the field: apps/storefront/base/deployment.yaml carries
-# northwind.io/scanned-at: "pending" (D-334). A webhook-style timestamp written onto the live
+# northwind.io/scanned-at: "pending". A webhook-style timestamp written onto the live
 # object is therefore drift, and every apply of the manifest puts "pending" back.
 #
 # The claims, in order, each one falsifiable on its own:

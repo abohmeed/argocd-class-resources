@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# ACD-122
-# S04 L07 — A single source can't read valueFiles from another repository; spec.sources can.
+# lesson: s04_l07 Multi-source Applications: one chart, multiple value sources
+# A single source can't read valueFiles from another repository; spec.sources can.
 #
 # The lesson's claim is a hard failure/success pair: `helm.valueFiles` on a single `source`
 # block can only resolve paths inside THAT source's own repoURL, so pointing it at a file that
-# lives in a genuinely different repository fails at sync — a missing-file error, not a
+# lives in a genuinely different repository fails at sync: a missing-file error, not a
 # permissions error. `spec.sources`, with a named `ref:` and a `$values/...` valueFiles entry,
 # is what actually reaches across the repository boundary. This drives both attempts against
 # the two real, distinct, public companion repositories this course uses for the chart and the
-# values (argocd-class-resources and argocd-class-values — confirmed as two separate, reachable
+# values (argocd-class-resources and argocd-class-values: confirmed as two separate, reachable
 # GitHub repositories, not the same URL twice).
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
@@ -84,16 +84,16 @@ rendered="$(argocd app manifests "${APP}" 2>/dev/null | grep -A1 'replicas:' | h
 if printf '%s' "${rendered}" | grep -qE 'replicas: [2-9]'; then
   _pass "rendered replicas came from values-prod.yaml, not the chart's own default of 1"
 else
-  _fail "rendered manifest still shows the chart's own default replica count — the second source's values file was never actually read:\n${rendered}"
+  _fail "rendered manifest still shows the chart's own default replica count: the second source's values file was never actually read:\n${rendered}"
 fi
 
-step "the two sources stay independent — S04 L04's chart-only Application is untouched"
+step "the two sources stay independent: the chart-only Application from s04_l04.sh is untouched"
 if argocd app get storefront-helm >/dev/null 2>&1; then
   diff_out="$(argocd app diff storefront-helm 2>&1 || true)"
-  [ -z "${diff_out}" ] && _pass "storefront-helm (S04 L04) shows no diff — the values-repo edit did not leak into the chart source" \
+  [ -z "${diff_out}" ] && _pass "storefront-helm (from s04_l04.sh) shows no diff: the values-repo edit did not leak into the chart source" \
     || _fail "storefront-helm shows an unexpected diff after this lesson's edits:\n${diff_out}"
 else
-  _pass "storefront-helm not present in this run — independence check skipped, nothing to leak into"
+  _pass "storefront-helm not present in this run: independence check skipped, nothing to leak into"
 fi
 
 smoke_done

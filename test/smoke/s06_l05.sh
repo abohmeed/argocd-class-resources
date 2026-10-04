@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ACD-130
-# S06 L05 — hook deletion policies and the debris problem.
+# lesson: s06_l05 hook-delete-policy: cleaning up hook resources instead of accumulating them
+# Hook deletion policies and the debris problem.
 #
 # The claim (lesson as rewritten 2026-10-03, measured on v3.5.3): a hook with NO delete policy is
 # NOT left to pile up. Argo CD applies BeforeHookCreation by default, deleting the previous hook
@@ -85,7 +85,7 @@ else
 fi
 kubectl delete jobs -n "${NS}" --all >/dev/null 2>&1 || true
 
-step "BeforeHookCreation — never more than one hook Job standing, no matter how many syncs"
+step "BeforeHookCreation: never more than one hook Job standing, no matter how many syncs"
 write_manifests "true" "BeforeHookCreation"
 for _ in 1 2 3; do
   argocd app sync "${APP}" --local "${WORKDIR}" >/dev/null 2>&1 || true
@@ -94,7 +94,7 @@ done
 count="$(kubectl get jobs -n "${NS}" --no-headers 2>/dev/null | wc -l | tr -d ' ')"
 [ "${count}" -eq 1 ] \
   && _pass "exactly one hook Job present after 3 syncs under BeforeHookCreation" \
-  || _fail "expected exactly 1 Job under BeforeHookCreation, found ${count} — the previous hook is not being deleted before the new one is created"
+  || _fail "expected exactly 1 Job under BeforeHookCreation, found ${count}: the previous hook is not being deleted before the new one is created"
 kubectl delete jobs -n "${NS}" --all >/dev/null 2>&1 || true
 
 step "HookSucceeded: a successful hook is swept once it succeeds"
@@ -110,14 +110,14 @@ done
   && _pass "no Job left after a successful sync under HookSucceeded: the success was swept" \
   || _fail "expected 0 Jobs after a successful HookSucceeded sync, found ${count}"
 
-step "HookSucceeded — a FAILED hook is left standing, on purpose"
+step "HookSucceeded: a FAILED hook is left standing, on purpose"
 kubectl delete jobs -n "${NS}" --all >/dev/null 2>&1 || true
 write_manifests "exit 1" "HookSucceeded"
 argocd app sync "${APP}" --local "${WORKDIR}" >/dev/null 2>&1 || true
 sleep 10
 failed_count="$(kubectl get jobs -n "${NS}" -o jsonpath='{range .items[?(@.status.failed>=1)]}{.metadata.name}{"\n"}{end}' 2>/dev/null | wc -l | tr -d ' ')"
 [ "${failed_count}" -ge 1 ] \
-  && _pass "the failed hook Job is still present (HookSucceeded only sweeps successes) — the failure evidence isn't erased" \
-  || _fail "no failed hook Job found standing — either the hook didn't actually fail, or HookSucceeded swept a failure it should have left alone"
+  && _pass "the failed hook Job is still present (HookSucceeded only sweeps successes): the failure evidence isn't erased" \
+  || _fail "no failed hook Job found standing: either the hook didn't actually fail, or HookSucceeded swept a failure it should have left alone"
 
 smoke_done

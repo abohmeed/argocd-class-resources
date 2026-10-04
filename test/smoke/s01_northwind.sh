@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S02 L04 + L05 (ACD-82, ACD-83): build Northwind from empty, then hand it to Argo CD.
+# Northwind end to end: build it from empty by hand, then hand it to Argo CD (the same steps as s02_l04.sh and s02_l05.sh).
 #
 # This script IS the lesson's commands. If the lesson changes, this changes with it in the same PR;
 # CI diffs the two. That is the mechanism that makes repo drift structurally impossible.
@@ -7,7 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 NS="storefront-dev"
 
-step "S02 L04 (ACD-82): apply the overlay by hand, with no Argo CD in the loop"
+step "apply the overlay by hand, with no Argo CD in the loop"
 kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -k "${REPO_ROOT}/apps/storefront/overlays/dev"
 wait_for_rollout deployment/storefront "${NS}"
@@ -29,7 +29,7 @@ banner() {
   printf '%s' "${out}"
 }
 
-step "S02 L04 (ACD-82): the banner is served from an env var, so a ConfigMap edit alone does NOT change it"
+step "the banner is served from an env var, so a ConfigMap edit alone does NOT change it"
 before="$(banner)"
 [ -n "${before}" ] && _pass "banner served: ${before}" || _fail "banner not served"
 
@@ -39,7 +39,7 @@ kubectl patch configmap -n "${NS}" \
 sleep 5
 after="$(banner)"
 if [ "${before}" = "${after}" ]; then
-  _pass "banner unchanged after ConfigMap edit — the teaching point holds (env var is read at start)"
+  _pass "banner unchanged after ConfigMap edit: the teaching point holds (env var is read at start)"
 else
   _fail "banner changed without a restart; the lesson's closing surprise does not reproduce"
 fi

@@ -21,11 +21,11 @@ _fail() {
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 
-# _require_dirs <dir>... — every directory a repo-wide scan claims to cover must exist.
+# _require_dirs <dir>...: every directory a repo-wide scan claims to cover must exist.
 #
 # The scans below pipe grep through `|| true`, because grep exits 1 when it finds nothing and
 # "found nothing" is the passing case. That same `|| true` also swallows "No such file or
-# directory", so a scan over a directory that is not there reports ok having read nothing —
+# directory", so a scan over a directory that is not there reports ok having read nothing:
 # a green tick from a path that did no work. This was not hypothetical: `platform/` held only
 # empty subdirectories, git does not track those, and the first push produced a repo where
 # `assert_images_pinned` and `assert_no_plaintext_secrets` both passed while scanning a
@@ -33,11 +33,11 @@ step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 _require_dirs() {
   local d
   for d in "$@"; do
-    [ -d "${d}" ] || _fail "scan target is missing: ${d#"${REPO_ROOT}"/} — this check would otherwise pass by reading nothing"
+    [ -d "${d}" ] || _fail "scan target is missing: ${d#"${REPO_ROOT}"/}: this check would otherwise pass by reading nothing"
   done
 }
 
-# assert_kustomize_builds <path> — the overlay renders at all.
+# assert_kustomize_builds <path>: the overlay renders at all.
 assert_kustomize_builds() {
   local path="$1"
   if kubectl kustomize "${REPO_ROOT}/${path}" >/dev/null 2>&1; then
@@ -47,7 +47,7 @@ assert_kustomize_builds() {
   fi
 }
 
-# assert_renders_kind <path> <kind> — the overlay produces at least one object of this kind.
+# assert_renders_kind <path> <kind>: the overlay produces at least one object of this kind.
 assert_renders_kind() {
   local path="$1" kind="$2"
   if kubectl kustomize "${REPO_ROOT}/${path}" | grep -q "^kind: ${kind}$"; then
@@ -57,16 +57,16 @@ assert_renders_kind() {
   fi
 }
 
-# assert_no_forbidden_sources — the course-wide bans, enforced mechanically.
+# assert_no_forbidden_sources: the course-wide bans, enforced mechanically.
 #
-# These are not style preferences. Bitnami moved its versioned images to a paid catalogue in 2025 —
+# These are not style preferences. Bitnami moved its versioned images to a paid catalogue in 2025:
 # the charts still resolve, but `:16.4.0` is a 404 and only `:latest` is free, so a chart from there
 # cannot be pinned. ingress-nginx was archived in March 2026. Either one appearing in this repo
 # means a student hits a wall the course promised they would not.
 assert_no_forbidden_sources() {
   local hits
-  # 'Section 0*' is the 2023 course, left exactly as its live students use it (D-238). The 2026 tree is
-  # what this invariant protects; scanning the 2023 folders kept CI red every night since 2026-09-23.
+  # 'Section 0*' holds the 2023 version of the course, kept exactly as its students use it. The 2026 tree is
+  # what this invariant protects, so the 2023 folders are not scanned.
   hits="$(grep -rIl --exclude-dir=.git --exclude-dir=test --exclude-dir='Section 0*' \
     -e 'charts\.bitnami\.com' \
     -e 'bitnami/charts' \
@@ -80,12 +80,12 @@ assert_no_forbidden_sources() {
   fi
 }
 
-# assert_no_legacy_appset_templating — {{foo}} without a dot, under goTemplate: true, is a
-# hard PARSE ERROR in Argo CD 3.5 ("function \"foo\" not defined"). Catch it here, not on camera.
+# assert_no_legacy_appset_templating: {{foo}} without a dot, under goTemplate: true, is a
+# hard PARSE ERROR in Argo CD 3.5 ("function \"foo\" not defined"). Catch it here, not in the middle of a lesson.
 assert_no_legacy_appset_templating() {
   local hits
-  # Comments are stripped before scanning. The manifests document this very rule —
-  # "the legacy dot-less {{name}} form is a HARD PARSE ERROR" — and the first version
+  # Comments are stripped before scanning. The manifests document this very rule:
+  # "the legacy dot-less {{name}} form is a HARD PARSE ERROR", and the first version
   # of this check matched its own explanatory comment and failed a correct file.
   # Naming a forbidden form in order to warn against it is not using it.
   _require_dirs "${REPO_ROOT}/applicationsets"
@@ -94,11 +94,11 @@ assert_no_legacy_appset_templating() {
   if [ -z "${hits}" ]; then
     _pass "no legacy (dot-less) ApplicationSet templating"
   else
-    _fail "legacy {{name}} templating found — 3.5 fails this at parse time:\n${hits}"
+    _fail "legacy {{name}} templating found: 3.5 fails this at parse time:\n${hits}"
   fi
 }
 
-# assert_images_pinned — no :latest, and no untagged images. A demo that floats is a demo that rots.
+# assert_images_pinned: no :latest, and no untagged images. A demo that floats is a demo that rots.
 assert_images_pinned() {
   local hits
   _require_dirs "${REPO_ROOT}/apps"
@@ -111,8 +111,8 @@ assert_images_pinned() {
   fi
 }
 
-# assert_no_plaintext_secrets — a Secret with literal data committed to git is the exact mistake
-# S05 L01 opens on. It must never be in the repo outside the one lesson that demonstrates it.
+# assert_no_plaintext_secrets: a Secret with literal data committed to git is the exact mistake
+# the secrets section opens on. It must never be in the repo outside the one lesson that demonstrates it.
 assert_no_plaintext_secrets() {
   local hits
   _require_dirs "${REPO_ROOT}/apps" "${REPO_ROOT}/teams"
@@ -121,11 +121,11 @@ assert_no_plaintext_secrets() {
   if [ -z "${hits}" ]; then
     _pass "no plaintext Secret manifests committed"
   else
-    _fail "plaintext Secret committed — use a SealedSecret: ${hits}"
+    _fail "plaintext Secret committed: use a SealedSecret: ${hits}"
   fi
 }
 
-# wait_for_sync <app> [timeout] — Argo CD reports Synced AND Healthy, not just Synced.
+# wait_for_sync <app> [timeout]: Argo CD reports Synced AND Healthy, not just Synced.
 wait_for_sync() {
   local app="$1" timeout="${2:-300}" deadline
   deadline=$(( $(date +%s) + timeout ))
@@ -151,14 +151,14 @@ wait_for_rollout() {
   fi
 }
 
-# assert_yaml_parses <path> — every standalone manifest is at least valid YAML that kubectl accepts.
+# assert_yaml_parses <path>: every standalone manifest is at least valid YAML that kubectl accepts.
 # This exists because the manifests were authored on a machine with no kubectl; CI is the first
 # place they are parsed at all, so CI has to actually do it rather than assume.
 assert_yaml_parses() {
   local path="$1"
   # Distinguish "no kubectl here" from "this file is broken". The first version said
-  # "does not parse" in both cases, and on a k3s host — where the binary is `k3s
-  # kubectl`, not `kubectl` — it blamed a manifest that was perfectly valid. An
+  # "does not parse" in both cases, and on a k3s host, where the binary is `k3s
+  # kubectl`, not `kubectl`: it blamed a manifest that was perfectly valid. An
   # environment fault reported as a content defect sends the reader hunting in the
   # wrong file.
   local kc=""
@@ -199,7 +199,7 @@ assert_yaml_parses() {
 #
 #   1. Some lessons need nothing but the repo (does the overlay build, is the templating legal).
 #   2. Some need a live cluster (does the sync actually reach Healthy).
-#   3. Some cannot run in CI AT ALL — they open a browser for SSO, raise a GitHub pull request,
+#   3. Some cannot run in CI AT ALL: they open a browser for SSO, raise a GitHub pull request,
 #      push to a registry, or build Multipass VMs.
 #
 # The danger is entirely in the third group. A script that quietly returns 0 because it decided
@@ -215,7 +215,7 @@ SMOKE_TIER=""
 # lesson <SNN-LMM> <one-line claim this script defends>
 lesson() {
   SMOKE_LESSON="$1"; shift
-  printf '\033[1m%s\033[0m — %s\n' "${SMOKE_LESSON}" "$*"
+  printf '\033[1m%s\033[0m: %s\n' "${SMOKE_LESSON}" "$*"
 }
 
 # tier repo|cluster|external
@@ -229,28 +229,28 @@ tier() {
 # needs_external <what it needs> <why CI cannot provide it>
 # Terminates the script with 78. NOT a pass, and it never prints one.
 needs_external() {
-  printf '  \033[33mDECLARED\033[0m %s needs %s — %s\n' "${SMOKE_LESSON:-this lesson}" "$1" "$2"
-  printf '  \033[33m         this script asserts the repo-side invariants only; the rest is a take-day check\033[0m\n'
+  printf '  \033[33mDECLARED\033[0m %s needs %s: %s\n' "${SMOKE_LESSON:-this lesson}" "$1" "$2"
+  printf '  \033[33m         this script asserts the repo-side invariants only; the rest has to be checked by hand on a full lab setup\033[0m\n'
   exit 78
 }
 
-# smoke_done — the only thing allowed to print a pass line.
+# smoke_done: the only thing allowed to print a pass line.
 smoke_done() {
   argocd_cli_release 2>/dev/null || true
   printf '\n\033[32m%s passed\033[0m\n' "${SMOKE_LESSON:-smoke}"
 }
 
-# assert_exists_dir <path> / assert_exists_file <path> — repo-tier building blocks.
-# A lesson that syncs a path the repo does not hold fails on camera; these are the cheapest
+# assert_exists_dir <path> / assert_exists_file <path>: repo-tier building blocks.
+# A lesson that syncs a path the repo does not hold fails in front of the student; these are the cheapest
 # possible guard against that, and they run without a cluster.
 assert_exists_dir() {
   [ -d "${REPO_ROOT}/$1" ] && _pass "directory present: $1" \
-    || _fail "directory MISSING: $1 — a lesson names it, so either the lesson or the repo is wrong"
+    || _fail "directory MISSING: $1: a lesson names it, so either the lesson or the repo is wrong"
 }
 
 assert_exists_file() {
   [ -f "${REPO_ROOT}/$1" ] && _pass "file present: $1" \
-    || _fail "file MISSING: $1 — a lesson names it, so either the lesson or the repo is wrong"
+    || _fail "file MISSING: $1: a lesson names it, so either the lesson or the repo is wrong"
 }
 
 # assert_file_contains <path> <extended-regex> <what it means>
@@ -258,25 +258,25 @@ assert_file_contains() {
   if grep -qE "$2" "${REPO_ROOT}/$1" 2>/dev/null; then
     _pass "$3"
   else
-    _fail "$1 does not match /$2/ — $3"
+    _fail "$1 does not match /$2/: $3"
   fi
 }
 
 # assert_file_lacks <path> <extended-regex> <why it must not be there>
 assert_file_lacks() {
   if grep -qE "$2" "${REPO_ROOT}/$1" 2>/dev/null; then
-    _fail "$1 contains /$2/ — $3"
+    _fail "$1 contains /$2/: $3"
   else
     _pass "$3"
   fi
 }
 
-# assert_yaml_wellformed <path> — REPO TIER. Is this valid YAML at all?
+# assert_yaml_wellformed <path>: REPO TIER. Is this valid YAML at all?
 #
 # Deliberately weaker than assert_yaml_parses, and usable without a cluster. `kubectl apply
 # --dry-run=client` is NOT an offline parse: it resolves kinds through the API server's discovery
 # endpoint, so it cannot judge a CRD-backed manifest on a machine with no cluster. This answers
-# the smaller question — does it parse as YAML — which is the one a PR check can actually ask.
+# the smaller question: does it parse as YAML, which is the one a PR check can actually ask.
 #
 # If no YAML parser is on PATH this FAILS. It does not pass quietly: a check that cannot run must
 # say so, because "0 bad" from an instrument that never started is worse than no check at all.
@@ -287,34 +287,34 @@ assert_yaml_wellformed() {
     if ruby -ryaml -e 'YAML.load_stream(File.read(ARGV[0]))' "$f" >/dev/null 2>&1; then
       _pass "valid YAML: ${path}"
     else
-      _fail "INVALID YAML: ${path} — $(ruby -ryaml -e 'begin; YAML.load_stream(File.read(ARGV[0])); rescue => e; print e.message.lines.first.to_s.strip; end' "$f" 2>/dev/null)"
+      _fail "INVALID YAML: ${path}: $(ruby -ryaml -e 'begin; YAML.load_stream(File.read(ARGV[0])); rescue => e; print e.message.lines.first.to_s.strip; end' "$f" 2>/dev/null)"
     fi
   else
     _fail "cannot check ${path}: no YAML parser on PATH (environment fault, not a defect in the file)"
   fi
 }
 
-# argocd_cli_ready — make the `argocd` CLI usable, or fail saying exactly what is missing.
+# argocd_cli_ready: make the `argocd` CLI usable, or fail saying exactly what is missing.
 #
 # Many cluster-tier scripts drive the CLI rather than kubectl, because the thing they are proving
 # lives in Argo CD's own API layer (RBAC, projects, sync windows) and is invisible from the
 # Kubernetes side. On a bare CI cluster there is no gateway and no session, so the CLI dies with
-# `Argo CD server address unspecified` — a raw fatal that reads like a broken script rather than
+# `Argo CD server address unspecified`: a raw fatal that reads like a broken script rather than
 # an unconfigured environment. This does the port-forward and the login once, and says plainly
 # which of the two failed if it cannot.
 #
 # Sets ARGOCD_OPTS so every later `argocd` call in the script inherits the session.
-# argocd_cli_ready — make the `argocd` CLI usable without a server, a session, or a port-forward.
+# argocd_cli_ready: make the `argocd` CLI usable without a server, a session, or a port-forward.
 #
 # Many cluster-tier scripts drive the CLI rather than kubectl, because what they are proving lives
 # in Argo CD's own API layer (projects, sync windows, refresh semantics) and is invisible from the
 # Kubernetes side. On a bare CI cluster there is no ingress and no login, and the CLI dies with
-# `Argo CD server address unspecified` — a raw fatal that reads like a broken script rather than an
+# `Argo CD server address unspecified`: a raw fatal that reads like a broken script rather than an
 # unconfigured environment.
 #
 # `--core` is the way out: the CLI talks straight to the Kubernetes API using the kubeconfig
 # already in hand, with no argocd-server session at all. It resolves `argocd-cm` through the
-# CURRENT KUBE CONTEXT'S NAMESPACE, not $ARGOCD_NAMESPACE — so the namespace is switched here and
+# CURRENT KUBE CONTEXT'S NAMESPACE, not $ARGOCD_NAMESPACE, so the namespace is switched here and
 # restored on the way out. An earlier version of this port-forwarded and logged in with the
 # bootstrap admin password; it was fragile (the forward did not survive a non-interactive shell,
 # and `localhost` resolved to ::1 where nothing was listening) and it is unnecessary.
@@ -338,7 +338,7 @@ argocd_cli_ready() {
   return 1
 }
 
-# argocd_cli_release — put the kube context back. Called by _fail and smoke_done, so a script
+# argocd_cli_release: put the kube context back. Called by _fail and smoke_done, so a script
 # never has to remember, and so this cannot clobber the script's own `trap cleanup EXIT`.
 argocd_cli_release() {
   if [ -n "${ARGOCD_PREV_NS:-}" ]; then

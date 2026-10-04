@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# ACD-154
-# S06 L09 — sync options, and what selective sync gives up.
+# lesson: s06_l09 Sync options: ServerSideApply, CreateNamespace, Replace, and what selective sync gives up
+# Sync options, and what selective sync gives up.
 #
 # Two claims, both about what Argo CD skips when you ask it to touch only one resource: a
 # selective sync (`--resource ...`) does not add an entry to `argocd app history` the way a full
-# sync does, and it does not run the phases hooks fire in — a PreSync hook sitting in the same
+# sync does, and it does not run the phases hooks fire in: a PreSync hook sitting in the same
 # Application is NOT re-triggered by a selective sync of an unrelated resource. The byte-ceiling /
-# ServerSideApply mechanism this lesson also covers is already proven by S02 L03's own smoke test
+# ServerSideApply mechanism this lesson also covers is already proven by an earlier smoke test
 # against the real ApplicationSet CRD (test/smoke/s02_control_plane.sh); this script does not
-# duplicate it and focuses on what's unique to L09. All four sync options are also confirmed
+# duplicate it and focuses on what's unique to this lesson. All four sync options are also confirmed
 # settable. Runs against a scratch Application this script owns.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
@@ -18,7 +18,7 @@ NS="${LESSON_ID}-probe"
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
 WORKDIR="$(mktemp -d)"
 
-lesson S06-L09 "selective sync touches only the named resource — it skips both the history entry and the hook phases a full sync runs"
+lesson S06-L09 "selective sync touches only the named resource: it skips both the history entry and the hook phases a full sync runs"
 tier cluster
 
 # This lesson is proven through Argo CD's own API layer, so the CLI needs a session. On a
@@ -94,30 +94,30 @@ for opt in ServerSideApply=true CreateNamespace=true Replace=true SkipDryRunOnMi
   if printf '%s' "${opts}" | grep -qF "${opt}"; then
     _pass "sync option ${opt} is set"
   else
-    _fail "sync option ${opt} did not stick — 'argocd app get' does not list it under syncOptions"
+    _fail "sync option ${opt} did not stick: 'argocd app get' does not list it under syncOptions"
   fi
 done
 
 step "a full sync appears in history, and the PreSync hook fires"
 argocd app sync "${APP}" --local "${WORKDIR}" >/dev/null 2>&1 || true
 kubectl wait --for=condition=complete job/probe-presync -n "${NS}" --timeout=60s >/dev/null 2>&1 \
-  || _fail "PreSync hook never completed on the full sync — cannot test what selective sync skips relative to it"
+  || _fail "PreSync hook never completed on the full sync: cannot test what selective sync skips relative to it"
 hist_before="$(argocd app history "${APP}" 2>/dev/null | grep -c . || true)"
 hook_rv_before="$(kubectl get job probe-presync -n "${NS}" -o jsonpath='{.metadata.resourceVersion}')"
 _pass "full sync completed, history has ${hist_before} line(s), hook Job at resourceVersion ${hook_rv_before}"
 
-step "selective sync of just the Deployment — no new history entry, no new hook run"
+step "selective sync of just the Deployment: no new history entry, no new hook run"
 sed -i.bak 's/probe-v1/probe-v2/' "${WORKDIR}/deployment.yaml" && rm -f "${WORKDIR}/deployment.yaml.bak"
 argocd app sync "${APP}" --local "${WORKDIR}" --resource apps:Deployment:probe >/dev/null 2>&1 || true
 sleep 5
 hist_after="$(argocd app history "${APP}" 2>/dev/null | grep -c . || true)"
 [ "${hist_after}" -eq "${hist_before}" ] \
-  && _pass "history is still ${hist_after} line(s) — the selective sync did not add an entry" \
-  || _fail "history grew from ${hist_before} to ${hist_after} lines — a selective sync should not appear in rollback history"
+  && _pass "history is still ${hist_after} line(s): the selective sync did not add an entry" \
+  || _fail "history grew from ${hist_before} to ${hist_after} lines: a selective sync should not appear in rollback history"
 
 hook_rv_after="$(kubectl get job probe-presync -n "${NS}" -o jsonpath='{.metadata.resourceVersion}' 2>/dev/null || true)"
 [ "${hook_rv_after}" = "${hook_rv_before}" ] \
-  && _pass "the PreSync hook Job is unchanged (still resourceVersion ${hook_rv_after}) — selective sync skipped the hook phase entirely" \
-  || _fail "the PreSync hook Job changed (resourceVersion ${hook_rv_before} -> ${hook_rv_after}) — selective sync should not have touched the hook phases at all"
+  && _pass "the PreSync hook Job is unchanged (still resourceVersion ${hook_rv_after}): selective sync skipped the hook phase entirely" \
+  || _fail "the PreSync hook Job changed (resourceVersion ${hook_rv_before} -> ${hook_rv_after}): selective sync should not have touched the hook phases at all"
 
 smoke_done

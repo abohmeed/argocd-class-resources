@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# ACD-184
-# S12 L10 — a stuck PreSync hook is diagnosable by name (a missing image-pull secret), not just
-# "stuck"; and ignoreDifferences alone does not stop selfHeal reverting a re-applied field away —
+# lesson: s12_l10 Troubleshooting Argo CD: stuck syncs and OutOfSync loops
+# A stuck PreSync hook is diagnosable by name (a missing image-pull secret), not just
+# "stuck"; and ignoreDifferences alone does not stop selfHeal reverting a re-applied field away:
 # it needs RespectIgnoreDifferences too, proven against a real, reconciling Application.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
@@ -51,13 +51,13 @@ EOF
 sleep 8
 pod_events="$(kubectl describe pod -n "${HOOK_NS}" -l job-name=stuck-hook 2>/dev/null | grep -A3 Events || true)"
 if printf '%s' "${pod_events}" | grep -qi 'registry-creds-that-do-not-exist'; then
-  _pass "the hook pod's own Events name the missing image-pull secret — diagnosable, not just hung"
+  _pass "the hook pod's own Events name the missing image-pull secret: diagnosable, not just hung"
 else
   _fail "expected the hook pod's Events to name 'registry-creds-that-do-not-exist':\n${pod_events}"
 fi
 succ="$(kubectl get job stuck-hook -n "${HOOK_NS}" -o jsonpath='{.status.succeeded}' 2>/dev/null || true)"
-[ "${succ}" = "1" ] && _fail "the hook Job unexpectedly succeeded — it should be unable to complete without the secret" \
-  || _pass "the hook Job has not completed — this is what 'stuck' looks like, distinct from 'failed'"
+[ "${succ}" = "1" ] && _fail "the hook Job unexpectedly succeeded: it should be unable to complete without the secret" \
+  || _pass "the hook Job has not completed: this is what 'stuck' looks like, distinct from 'failed'"
 
 step "wire up a real Application, automated + selfHeal, watching apps/storefront/base"
 kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -75,7 +75,7 @@ spec:
 EOF
 wait_for_sync "${APP}" 180
 
-step "a repeatedly re-applied label IS reverted by selfHeal alone — the flap this lesson opens on"
+step "a repeatedly re-applied label IS reverted by selfHeal alone: the flap this lesson opens on"
 (
   while true; do
     kubectl -n "${NS}" patch deployment storefront --type=json \
@@ -91,9 +91,9 @@ FLAP_PID=""
 sleep 20
 still_present="$(kubectl get deployment storefront -n "${NS}" -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
 if [ -z "${still_present}" ]; then
-  _pass "with plain selfHeal and no ignoreDifferences, the flapped label was reverted away — reproduces the lesson's opener"
+  _pass "with plain selfHeal and no ignoreDifferences, the flapped label was reverted away: reproduces the lesson's opener"
 else
-  _fail "the flapped label is still present after selfHeal had time to revert it — the opener does not reproduce"
+  _fail "the flapped label is still present after selfHeal had time to revert it: the opener does not reproduce"
 fi
 
 step "ignoreDifferences + RespectIgnoreDifferences stops selfHeal from stripping the field back out"
@@ -120,7 +120,7 @@ survived="$(kubectl get deployment storefront -n "${NS}" -o jsonpath='{.spec.tem
 if [ "${survived}" = "webhook-sim" ]; then
   _pass "with ignoreDifferences AND RespectIgnoreDifferences, a sync no longer strips the field back out"
 else
-  _fail "the field was still removed even with ignoreDifferences + RespectIgnoreDifferences set — the fix this lesson teaches does not hold on this cluster"
+  _fail "the field was still removed even with ignoreDifferences + RespectIgnoreDifferences set: the fix this lesson teaches does not hold on this cluster"
 fi
 
 smoke_done

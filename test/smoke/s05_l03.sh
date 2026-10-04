@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# ACD-94
-# S05 L03 — External Secrets Operator: pulling from OpenBao, not Vault.
+# lesson: s05_l03 External Secrets Operator: pulling credentials from an external store
+# External Secrets Operator: pulling from OpenBao, not Vault.
 #
 # The claim worth defending is specific, not generic ESO plumbing: this course demos against
 # OpenBao, configured through ESO's `provider: vault` block unmodified, and the credential is
-# PULLED at reconcile time — it never touches Git. If the ClusterSecretStore ever pointed at a
+# PULLED at reconcile time: it never touches Git. If the ClusterSecretStore ever pointed at a
 # real HashiCorp Vault endpoint instead, or the value leaked into a committed manifest, both
-# would contradict what this lesson says on camera. Runs against scratch namespaces/paths this
-# script owns; the shared OpenBao/ESO install (permanent course infrastructure per the runbook)
+# would contradict what this lesson says. Runs against scratch namespaces/paths this
+# script owns; the shared OpenBao/ESO install (permanent course infrastructure)
 # is reused if already present, installed idempotently if not.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S05-L03 "ESO pulls checkout's credential from OpenBao at reconcile time — nothing secret-shaped ever touches Git"
+lesson S05-L03 "ESO pulls checkout's credential from OpenBao at reconcile time: nothing secret-shaped ever touches Git"
 tier external
 
-# D-342: declared external for a measured RUNNER limit, not a lesson defect. The cluster body below
+# Declared external for a measured RUNNER limit, not a lesson defect. The cluster body below
 # is kept intact for a host that can run it; restore "tier cluster" and smoke_done when the limit is lifted.
 needs_external "a running OpenBao and External Secrets Operator" \
   "runner limit: the OpenBao statefulset never became ready on the GitHub-hosted runner (run 37111303388), so ESO has no store to pull from here"
@@ -33,7 +33,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-step "OpenBao is installed and reachable (dev mode) — the claim is specifically OpenBao, not HashiCorp Vault"
+step "OpenBao is installed and reachable (dev mode): the claim is specifically OpenBao, not HashiCorp Vault"
 if ! kubectl get statefulset openbao -n openbao >/dev/null 2>&1; then
   helm repo add openbao "${OPENBAO_CHART_REPO}" >/dev/null 2>&1 || true
   helm repo update >/dev/null 2>&1
@@ -44,7 +44,7 @@ kubectl rollout status statefulset/openbao -n openbao --timeout=180s >/dev/null 
   || _fail "OpenBao statefulset never became ready"
 image="$(kubectl get pod openbao-0 -n openbao -o jsonpath='{.spec.containers[0].image}')"
 case "${image}" in
-  *vault*hashicorp*) _fail "openbao-0 is actually running a HashiCorp Vault image (${image}) — this lesson's whole point is OpenBao, not Vault" ;;
+  *vault*hashicorp*) _fail "openbao-0 is actually running a HashiCorp Vault image (${image}): this lesson's whole point is OpenBao, not Vault" ;;
   *openbao*) _pass "openbao-0 is running an OpenBao image (${image})" ;;
   *) _pass "openbao-0 image is ${image} (no vendor string to check, but not a HashiCorp Vault image)" ;;
 esac
@@ -63,9 +63,9 @@ _pass "external-secrets controller is running"
 step "write a scratch credential into OpenBao, and confirm nothing about it is in this repo"
 kubectl exec -n openbao openbao-0 -- env BAO_TOKEN=root bao kv put "${VAULT_PATH}" "password=${SECRET_VALUE}" >/dev/null
 if grep -rqF --exclude-dir=.git --exclude-dir=test "${SECRET_VALUE}" "${REPO_ROOT}" 2>/dev/null; then
-  _fail "the scratch OpenBao credential leaked into the companion repo — that is exactly what this lesson says never happens"
+  _fail "the scratch OpenBao credential leaked into the companion repo: that is exactly what this lesson says never happens"
 else
-  _pass "the credential lives in OpenBao only — nothing wrote it back into the repo"
+  _pass "the credential lives in OpenBao only: nothing wrote it back into the repo"
 fi
 
 step "wire ClusterSecretStore -> ExternalSecret against OpenBao's own service, and confirm the pull actually works"
@@ -92,7 +92,7 @@ EOF
 server="$(kubectl get clustersecretstore "${LESSON_ID}-openbao" -o jsonpath='{.spec.provider.vault.server}')"
 case "${server}" in
   *openbao*) _pass "ClusterSecretStore server (${server}) points at OpenBao's own service" ;;
-  *) _fail "ClusterSecretStore server is ${server} — expected the in-cluster OpenBao service" ;;
+  *) _fail "ClusterSecretStore server is ${server}: expected the in-cluster OpenBao service" ;;
 esac
 
 cat <<EOF | kubectl apply -f - >/dev/null
@@ -122,7 +122,7 @@ for _ in $(seq 1 20); do
   sleep 3
 done
 [ "${pulled}" = "${SECRET_VALUE}" ] \
-  && _pass "ESO pulled the exact credential written into OpenBao — the ClusterSecretStore/ExternalSecret chain works end to end" \
-  || _fail "ExternalSecret never materialised '${SECRET_VALUE}' (got '${pulled}') — the OpenBao pull chain is broken"
+  && _pass "ESO pulled the exact credential written into OpenBao: the ClusterSecretStore/ExternalSecret chain works end to end" \
+  || _fail "ExternalSecret never materialised '${SECRET_VALUE}' (got '${pulled}'): the OpenBao pull chain is broken"
 
 # smoke_done  (unreachable while this script is tier external; restore with tier cluster)

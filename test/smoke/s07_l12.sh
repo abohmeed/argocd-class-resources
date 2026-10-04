@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# ACD-163
-# S07 L12 — service account impersonation: stopping Argo CD being a god object.
+# lesson: s07_l12 Service Account Impersonation: stopping Argo CD from being a god object
+# Service account impersonation: stopping Argo CD being a god object.
 #
 # The claim: once `application.sync.impersonation.enabled` is on and an AppProject names a scoped
-# ServiceAccount via `destinationServiceAccounts`, the controller syncs AS that ServiceAccount —
+# ServiceAccount via `destinationServiceAccounts`, the controller syncs AS that ServiceAccount,
 # so a sync succeeds for whatever its Role grants (Deployments/Services/ConfigMaps here), but
 # reading logs or deleting a Pod through Argo CD is refused by underlying KUBERNETES RBAC on the
 # impersonated identity, even for an account (here: admin) whose own Argo CD-level RBAC would
 # otherwise allow both without question. That last part is the whole point: this is a different,
-# lower layer than S07 L06–L08's policy.csv, and it overrides what policy.csv would allow.
+# lower layer than the policy.csv rules from the earlier RBAC lessons, and it overrides what
+# policy.csv would allow.
 #
-# `application.sync.impersonation.enabled` is a global flag on argocd-cm — snapshotted and
-# restored so this is safe to run alongside the rest of the S07 suite on the same cluster.
+# `application.sync.impersonation.enabled` is a global flag on argocd-cm: snapshotted and
+# restored so this is safe to run alongside the rest of this section's scripts on the same cluster.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S07-L12 "impersonation makes the controller sync as a scoped ServiceAccount — its Role's grants succeed, but logs and Pod delete are refused by Kubernetes RBAC underneath, even for an admin Argo CD session"
+lesson S07-L12 "impersonation makes the controller sync as a scoped ServiceAccount: its Role's grants succeed, but logs and Pod delete are refused by Kubernetes RBAC underneath, even for an admin Argo CD session"
 tier cluster
 
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
@@ -46,7 +47,7 @@ cleanup() {
 trap cleanup EXIT
 
 if ! command -v argocd >/dev/null 2>&1; then
-  _fail "argocd CLI not on PATH — argocd app logs / delete-resource are only reachable behind the real API"
+  _fail "argocd CLI not on PATH: argocd app logs / delete-resource are only reachable behind the real API"
 fi
 
 step "the scoped ServiceAccount: full control of Deployments/Services/ConfigMaps, read-only on Pods, no logs subresource"
@@ -81,7 +82,7 @@ can_update="$(kubectl auth can-i update deployments --namespace "${NS}" --as="sy
 if [ "${can_delete}" = "no" ] && [ "${can_logs}" = "no" ] && [ "${can_update}" = "yes" ]; then
   _pass "ServiceAccount's Kubernetes RBAC is exactly as scoped: no pod delete, no pod logs, yes deployment update"
 else
-  _fail "ServiceAccount's Role does not have the expected shape (delete=${can_delete} logs=${can_logs} update=${can_update}) — the rest of this test cannot isolate impersonation's effect from a Role that is wrong to begin with"
+  _fail "ServiceAccount's Role does not have the expected shape (delete=${can_delete} logs=${can_logs} update=${can_update}): the rest of this test cannot isolate impersonation's effect from a Role that is wrong to begin with"
 fi
 
 step "wire it in: destinationServiceAccounts on the project, impersonation enabled instance-wide"
@@ -92,7 +93,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata: {name: ${PROJ}, namespace: argocd}
 spec:
-  description: "S07 L12 smoke probe — not the real checkout project."
+  description: "Smoke-test probe: not the real checkout project."
   sourceRepos: ["${REPO}"]
   destinations:
     - {server: "https://kubernetes.default.svc", namespace: "${NS}"}
@@ -102,7 +103,7 @@ EOF
 kubectl patch configmap argocd-cm -n argocd --type merge -p \
   '{"data":{"application.sync.impersonation.enabled":"true"}}' >/dev/null
 
-step "sync succeeds — the SA's Role covers everything a plain Deployment+Service sync touches"
+step "sync succeeds: the SA's Role covers everything a plain Deployment+Service sync touches"
 cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -117,7 +118,7 @@ wait_for_sync "${APP}" 180
 POD_NAME="$(kubectl get pods -n "${NS}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
 [ -n "${POD_NAME}" ] || _fail "no Pod found in ${NS} after a reported sync"
 
-step "reach argocd-server as admin — an account whose OWN Argo CD RBAC has no reason to be denied logs or delete"
+step "reach argocd-server as admin: an account whose OWN Argo CD RBAC has no reason to be denied logs or delete"
 kubectl -n argocd port-forward svc/argocd-server "${PORT}:443" >/tmp/s07l12-portforward.log 2>&1 &
 PF_PID=$!
 up="no"
@@ -127,19 +128,19 @@ ADMIN_PW="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath
 [ -n "${ADMIN_PW}" ] || _fail "no argocd-initial-admin-secret on this cluster"
 argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 
-step "admin's own logs read is refused — blocked underneath by the impersonated SA's Kubernetes RBAC, not by policy.csv"
+step "admin's own logs read is refused: blocked underneath by the impersonated SA's Kubernetes RBAC, not by policy.csv"
 out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)"; rc=$?
 if [ "${rc}" -eq 0 ]; then
-  _fail "admin could read logs through the impersonated app — the impersonated ServiceAccount has no pods/log permission, so this should have been refused underneath, regardless of admin's own Argo CD RBAC"
+  _fail "admin could read logs through the impersonated app: the impersonated ServiceAccount has no pods/log permission, so this should have been refused underneath, regardless of admin's own Argo CD RBAC"
 else
-  _pass "admin's logs read refused (exit ${rc}) — Kubernetes RBAC on the impersonated identity overrides what admin's own Argo CD RBAC would otherwise allow"
+  _pass "admin's logs read refused (exit ${rc}): Kubernetes RBAC on the impersonated identity overrides what admin's own Argo CD RBAC would otherwise allow"
 fi
 
 step "admin's own Pod delete is refused the same way"
 if argocd app delete-resource "${APP}" --kind Pod --resource-name "${POD_NAME}" --namespace "${NS}" --grpc-web >/dev/null 2>&1; then
-  _fail "admin deleted the Pod through the impersonated app — the SA's Role only grants get/list/watch on Pods, delete should have been refused"
+  _fail "admin deleted the Pod through the impersonated app: the SA's Role only grants get/list/watch on Pods, delete should have been refused"
 else
-  _pass "Pod delete refused — the impersonated SA never had delete on Pods, and impersonation means that is what actually governs, not admin's own reach"
+  _pass "Pod delete refused: the impersonated SA never had delete on Pods, and impersonation means that is what actually governs, not admin's own reach"
 fi
 
 smoke_done

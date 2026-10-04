@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# ACD-197
-# S08 L11 — Progressive Syncs: rolling a fleet change in stages.
+# lesson: s08_l11 Progressive Syncs: rolling a fleet change in stages
+# Progressive Syncs: rolling a fleet change in stages.
 #
-# The lesson's claims (restored 2026-10-03, D-343, rewritten to the v3.5.3 docs): Progressive
+# The lesson's claims (checked against the v3.5.3 docs): Progressive
 # Syncs is Beta (since v3.3.0, still Beta in 3.5.3) and OFF until enabled on the ApplicationSet
 # controller, so an unenabled RollingSync is silently ignored; steps select by the labels on the
 # GENERATED Applications, not on clusters; RollingSync turns off automated sync on every
@@ -35,9 +35,9 @@ assert_file_contains \
   "storefront's Deployment defines a readinessProbe"
 if grep -A4 'readinessProbe:' "${REPO_ROOT}/apps/storefront/base/deployment.yaml" | grep -qiE 'banner|BANNER|httpGet'; then
   if grep -A4 'readinessProbe:' "${REPO_ROOT}/apps/storefront/base/deployment.yaml" | grep -q 'httpGet'; then
-    _pass "the probe is a plain httpGet on the root path — it cannot see the banner text, exactly the false-green gap Step 5 narrates"
+    _pass "the probe is a plain httpGet on the root path: it cannot see the banner text, exactly the false-green gap Step 5 describes"
   else
-    _fail "the readinessProbe no longer looks like a plain httpGet — Step 5's false-green claim needs re-checking against the actual probe shape"
+    _fail "the readinessProbe no longer looks like a plain httpGet: Step 5's false-green claim needs re-checking against the actual probe shape"
   fi
 else
   _fail "could not read the readinessProbe block to confirm it is body-blind"
@@ -50,4 +50,4 @@ for env in dev staging prod; do
 done
 
 needs_external "a registered four-cluster fleet (dev, staging, staging-eu, prod-us) and Progressive Syncs enabled on the ApplicationSet controller" \
-  "take-day check: with Progressive Syncs enabled, a RollingSync over stage labels on the generated Applications (canary, broad with maxUpdate: 50%, prod) advances a step only after its Applications report Healthy; the generated Applications carry no automated sync; an Application whose stage label no step matches is left out of the rollout and sits OutOfSync, with no error, until the label is fixed"
+  "manual check: with Progressive Syncs enabled, a RollingSync over stage labels on the generated Applications (canary, broad with maxUpdate: 50%, prod) advances a step only after its Applications report Healthy; the generated Applications carry no automated sync; an Application whose stage label no step matches is left out of the rollout and sits OutOfSync, with no error, until the label is fixed"

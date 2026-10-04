@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# ACD-150
-# S03 L09 — App of Apps: the parent's managed resources are Application objects, not Deployments.
+# lesson: s03_l09 The App of Apps pattern in Argo CD
+# App of Apps: the parent's managed resources are Application objects, not Deployments.
 #
 # The lesson's claim is about what KIND of thing the parent manages: `bootstrap/root-app.yaml`
 # (name `root`, source.path `bootstrap/apps`) points Argo CD at a directory of Application
-# manifests, so the parent's own managed-resources list is a set of `Application` objects — the
+# manifests, so the parent's own managed-resources list is a set of `Application` objects: the
 # parent never touches a Deployment or Service directly, and a child it has never seen before
 # gets created from nothing but a commit under that directory. If a future change made the
 # parent's managed resources look like ordinary workloads instead, or made a new child require a
@@ -12,7 +12,7 @@
 # collapses. This proves it with two throwaway children, isolated by name and namespace so this
 # script cannot collide with the real `root`/`storefront-dev` Applications any other lesson or
 # session may have live. It never touches the real bootstrap/apps/ directory or pushes to the
-# companion repo — the parent's child list comes from a local directory via `--local`, standing
+# companion repo: the parent's child list comes from a local directory via `--local`, standing
 # in for "a commit landed under bootstrap/apps/".
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
@@ -41,15 +41,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-step "repo-side invariant: apps/payments/overlays/dev exists — this is L09's real 'onboard a fourth child' content"
+step "repo-side invariant: apps/payments/overlays/dev exists: this is the lesson's real 'onboard a fourth child' content"
 # The real lesson's children point at the overlays (bootstrap/apps/storefront-dev.yaml does);
-# this script's own probe children point at base instead (see below) purely for CI isolation —
+# this script's own probe children point at base instead (see below) purely for CI isolation:
 # the overlays pin their own namespace, which would collide with the real, shared one. This
 # assertion still checks the real content the lesson itself onboards.
 assert_exists_dir "apps/payments/overlays/dev"
 assert_kustomize_builds "apps/payments/overlays/dev"
 
-step "the parent Application — its own namespace-scoped probe, standing in for bootstrap/root-app.yaml's shape"
+step "the parent Application: its own namespace-scoped probe, standing in for bootstrap/root-app.yaml's shape"
 cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -63,7 +63,7 @@ spec:
   syncPolicy: {}
 EOF
 
-step "the child list the parent will create — TWO Applications it has never seen before, pointed at real, already-committed paths"
+step "the child list the parent will create: TWO Applications it has never seen before, pointed at real, already-committed paths"
 mkdir -p "${TMPDIR}/apps"
 cat > "${TMPDIR}/apps/${CHILD_DEV}.yaml" <<EOF
 apiVersion: argoproj.io/v1alpha1
@@ -71,7 +71,7 @@ kind: Application
 metadata: {name: ${CHILD_DEV}, namespace: argocd}
 spec:
   project: default
-  # base, NOT overlays/dev — the dev overlay pins its own namespace, and a manifest's own
+  # base, NOT overlays/dev: the dev overlay pins its own namespace, and a manifest's own
   # namespace wins over destination.namespace, so this child would silently land in the real
   # storefront-dev namespace other lessons own. base pins none, so destination.namespace applies.
   source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/base}
@@ -86,7 +86,7 @@ kind: Application
 metadata: {name: ${CHILD_PAY}, namespace: argocd}
 spec:
   project: default
-  # base, NOT overlays/dev — the dev overlay pins its own namespace, and a manifest's own
+  # base, NOT overlays/dev: the dev overlay pins its own namespace, and a manifest's own
   # namespace wins over destination.namespace, so this child would silently land in the real
   # payments-dev namespace. base pins none, so destination.namespace applies cleanly.
   source: {repoURL: "${REPO}", targetRevision: main, path: apps/payments/base}
@@ -96,7 +96,7 @@ spec:
     syncOptions: ["CreateNamespace=true"]
 EOF
 
-step "sync the parent against that list — 'a commit landed under the apps directory', nothing applied against the children directly"
+step "sync the parent against that list: 'a commit landed under the apps directory', nothing applied against the children directly"
 argocd app sync "${PARENT}" --local "${TMPDIR}/apps" >/dev/null 2>&1 || true
 
 step "the parent's managed resources are Application objects, not Deployments or Services"
@@ -104,10 +104,10 @@ kinds="$(kubectl get application "${PARENT}" -n argocd -o jsonpath='{range .stat
 if [ -n "${kinds}" ] && ! printf '%s\n' "${kinds}" | grep -qvE '^(Application)?$'; then
   _pass "the parent's managed resources are all kind=Application: $(printf '%s' "${kinds}" | tr '\n' ' ')"
 else
-  _fail "expected the parent's managed resources to be exclusively kind=Application, got: $(printf '%s' "${kinds}" | tr '\n' ' ') — the composition boundary this lesson teaches (parent manages Applications, never workloads directly) does not hold"
+  _fail "expected the parent's managed resources to be exclusively kind=Application, got: $(printf '%s' "${kinds}" | tr '\n' ' '): the composition boundary this lesson teaches (parent manages Applications, never workloads directly) does not hold"
 fi
 
-step "the children reconcile on their own — created by the parent alone, then sync themselves (automated+selfHeal)"
+step "the children reconcile on their own: created by the parent alone, then sync themselves (automated+selfHeal)"
 wait_for_sync "${CHILD_DEV}" 180
 wait_for_sync "${CHILD_PAY}" 180
 _pass "both children reached Synced/Healthy without a single kubectl command aimed at either one directly"
@@ -121,7 +121,7 @@ kill "${pf_pid}" >/dev/null 2>&1 || true
 if printf '%s' "${body}" | grep -q "payments"; then
   _pass "payments-dev serves real traffic, onboarded through nothing but the parent: '${body}'"
 else
-  _fail "payments child did not serve the expected banner (got '${body:-empty}') — onboarding through the parent alone did not actually stand up a working service"
+  _fail "payments child did not serve the expected banner (got '${body:-empty}'): onboarding through the parent alone did not actually stand up a working service"
 fi
 
 smoke_done

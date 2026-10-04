@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# ACD-148
-# S06 L08 — PostDelete: cleaning up what Kubernetes never owned.
+# lesson: s06_l08 PreDelete and PostDelete hooks: cleaning up what Kubernetes never owned
+# PostDelete: cleaning up what Kubernetes never owned.
 #
 # The claim: the `resources-finalizer.argocd.argoproj.io` finalizer holds an Application object in
 # place long enough for its PostDelete hook to run BEFORE the workload it backs up is gone, and a
-# PostDelete backup written to a hostPath survives the namespace deletion that follows it — it has
+# PostDelete backup written to a hostPath survives the namespace deletion that follows it: it has
 # to, since the whole point of a PostDelete backup is outliving the thing being torn down. Proven
 # against a scratch Application/namespace this script owns; it never touches the shared `checkout`
 # Application the real lesson deletes and recreates.
@@ -49,7 +49,7 @@ kubectl patch application "${APP}" -n argocd --type merge \
 fin="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.metadata.finalizers}')"
 case "${fin}" in
   *resources-finalizer.argocd.argoproj.io*) _pass "resources-finalizer.argocd.argoproj.io present on ${APP}" ;;
-  *) _fail "resources-finalizer.argocd.argoproj.io is missing from ${APP} — deletion would remove the Application immediately, with no chance for a PostDelete hook to run" ;;
+  *) _fail "resources-finalizer.argocd.argoproj.io is missing from ${APP}: deletion would remove the Application immediately, with no chance for a PostDelete hook to run" ;;
 esac
 
 step "sync a scratch workload plus a PostDelete backup hook"
@@ -108,7 +108,7 @@ spec:
 EOF
 argocd app sync "${APP}" --local "${WORKDIR}" >/dev/null 2>&1 || true
 kubectl rollout status deployment/probe -n "${NS}" --timeout=90s >/dev/null 2>&1 \
-  || _fail "scratch workload never became Ready — cannot test PostDelete teardown against it"
+  || _fail "scratch workload never became Ready: cannot test PostDelete teardown against it"
 rm -rf "${WORKDIR}"
 
 step "delete the Application for real, and confirm the PostDelete hook runs before it's gone"
@@ -120,7 +120,7 @@ for _ in $(seq 1 30); do
 done
 [ "${gone}" = yes ] \
   && _pass "Application ${APP} fully deleted" \
-  || _fail "Application ${APP} did not finish deleting within 90s — check whether the PostDelete hook is stuck"
+  || _fail "Application ${APP} did not finish deleting within 90s: check whether the PostDelete hook is stuck"
 
 step "the backup landed on the node BEFORE the namespace it protected disappeared"
 kubectl delete pod "${LESSON_ID}-checker" -n default --ignore-not-found >/dev/null 2>&1 || true
@@ -131,8 +131,8 @@ kubectl wait --for=condition=Ready=false pod/"${LESSON_ID}-checker" -n default -
 marker="$(kubectl logs "${LESSON_ID}-checker" -n default 2>/dev/null || true)"
 kubectl delete pod "${LESSON_ID}-checker" -n default --ignore-not-found >/dev/null 2>&1 || true
 case "${marker}" in
-  backed-up-*) _pass "PostDelete backup file is present on the node: '${marker}' — it ran and survived the namespace it protected" ;;
-  *) _fail "no backup marker found on the node (got '${marker}') — the PostDelete hook either did not run or did not complete before teardown" ;;
+  backed-up-*) _pass "PostDelete backup file is present on the node: '${marker}': it ran and survived the namespace it protected" ;;
+  *) _fail "no backup marker found on the node (got '${marker}'): the PostDelete hook either did not run or did not complete before teardown" ;;
 esac
 
 smoke_done

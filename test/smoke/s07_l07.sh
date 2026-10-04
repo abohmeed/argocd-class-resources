@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# ACD-120
-# S07 L07 — the 3.0 breaking change: RBAC stops inheriting to sub-resources.
+# lesson: s07_l07 The Argo CD 3.0 RBAC change: no inheritance to sub-resources
+# The 3.0 breaking change: RBAC stops inheriting to sub-resources.
 #
 # The claim: a policy granting update/delete on `applications` alone no longer reaches the Pods,
-# Deployments and Services an Application manages — since Argo CD 3.0 that inheritance is gone.
+# Deployments and Services an Application manages, since Argo CD 3.0 that inheritance is gone.
 # Deleting a managed Pod is refused until the policy adds the explicit `update/*`/`delete/*`
 # wildcard actions. This is CLI-testable end to end via `argocd app delete-resource`, which is the
-# same RPC the UI's Pod-actions-menu Delete button calls — no browser needed to exercise the claim,
-# even though the runbook records it through the UI for the viewer's benefit.
+# same RPC the UI's Pod-actions-menu Delete button calls: no browser needed to exercise the claim,
+# even though the lesson shows it through the UI.
 #
-# Same port-forward-to-argocd-server approach as S07 L05/L06: the runbook's `argocd.local` assumes
-# the producer's TLS gateway (S02 L08), which the bare CI cluster never builds.
+# Same port-forward-to-argocd-server approach as s07_l05.sh and s07_l06.sh: the lesson's
+# `argocd.local` assumes the TLS gateway from s02_l08.sh, which the bare CI cluster never builds.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S07-L07 "since Argo CD 3.0, update/delete on applications alone no longer reaches a managed Pod — only the explicit update/* and delete/* wildcard actions do"
+lesson S07-L07 "since Argo CD 3.0, update/delete on applications alone no longer reaches a managed Pod: only the explicit update/* and delete/* wildcard actions do"
 tier cluster
 
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
@@ -43,7 +43,7 @@ cleanup() {
 trap cleanup EXIT
 
 if ! command -v argocd >/dev/null 2>&1; then
-  _fail "argocd CLI not on PATH — application-vs-sub-resource RBAC is only enforced behind the real API"
+  _fail "argocd CLI not on PATH: application-vs-sub-resource RBAC is only enforced behind the real API"
 fi
 
 step "fence a throwaway project, sync a throwaway app so it has a real Pod, and a throwaway account"
@@ -52,7 +52,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata: {name: ${PROJ}, namespace: argocd}
 spec:
-  description: "S07 L07 smoke probe — not the real checkout project."
+  description: "Smoke-test probe: not the real checkout project."
   sourceRepos: ["${REPO}"]
   destinations:
     - {server: "https://kubernetes.default.svc", namespace: "${NS}"}
@@ -69,7 +69,7 @@ spec:
 EOF
 wait_for_sync "${APP}" 180
 POD_NAME="$(kubectl get pods -n "${NS}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-[ -n "${POD_NAME}" ] || _fail "no Pod found in ${NS} after a reported sync — nothing to test the delete against"
+[ -n "${POD_NAME}" ] || _fail "no Pod found in ${NS} after a reported sync: nothing to test the delete against"
 _pass "target Pod is ${POD_NAME}"
 
 kubectl patch configmap argocd-cm -n argocd --type merge -p \
@@ -89,23 +89,23 @@ argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --passwo
 argocd account update-password --account "${ACCOUNT}" --new-password "${PASSWORD}" \
   --current-password "${ADMIN_PW}" --grpc-web >/dev/null
 
-step "pre-3.0-shaped policy (applications: update, delete only) — deleting the managed Pod is refused"
+step "pre-3.0-shaped policy (applications: update, delete only): deleting the managed Pod is refused"
 argocd login "localhost:${PORT}" --insecure --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
 if argocd app delete-resource "${APP}" --kind Pod --resource-name "${POD_NAME}" --namespace "${NS}" --grpc-web >/dev/null 2>&1; then
-  _fail "the account deleted a managed Pod with only 'applications update/delete' granted — 3.0's sub-resource inheritance removal is not in effect"
+  _fail "the account deleted a managed Pod with only 'applications update/delete' granted: 3.0's sub-resource inheritance removal is not in effect"
 else
-  _pass "Pod delete refused — applications-level update/delete does not reach a managed sub-resource"
+  _pass "Pod delete refused: applications-level update/delete does not reach a managed sub-resource"
 fi
 if argocd app set "${APP}" --dest-namespace "${NS}" --grpc-web >/dev/null 2>&1; then
-  _pass "the Application object itself is still reachable (a no-op update succeeds) — only what it manages is out of reach, not the Application"
+  _pass "the Application object itself is still reachable (a no-op update succeeds): only what it manages is out of reach, not the Application"
 else
-  _fail "even a no-op update to the Application object was refused — the account's applications-level update policy is not working at all, which breaks the contrast this lesson makes"
+  _fail "even a no-op update to the Application object was refused: the account's applications-level update policy is not working at all, which breaks the contrast this lesson makes"
 fi
 if ! kubectl get pod "${POD_NAME}" -n "${NS}" >/dev/null 2>&1; then
-  _fail "the Pod is gone despite the delete being refused — investigate before trusting this script's earlier pass"
+  _fail "the Pod is gone despite the delete being refused: investigate before trusting this script's earlier pass"
 fi
 
-step "add the explicit update/* and delete/* wildcard actions — the same delete now succeeds"
+step "add the explicit update/* and delete/* wildcard actions: the same delete now succeeds"
 argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
   "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete/*, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null

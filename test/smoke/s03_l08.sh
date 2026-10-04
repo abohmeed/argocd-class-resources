@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# ACD-145
-# S03 L08 — rollback restores service; only a durable fix to the source of truth closes the gap.
+# lesson: s03_l08 Argo CD rollback vs git revert
+# Rollback restores service; only a durable fix to the source of truth closes the gap.
 #
 # The lesson's claim: `argocd app rollback` (or the UI's Rollback button) re-applies a manifest
-# Argo CD already rendered before — it restores the running workload FAST, but it does nothing
+# Argo CD already rendered before: it restores the running workload FAST, but it does nothing
 # to the Application's own declared source, which still says the bad thing. That leaves the
 # Application OutOfSync, and if selfHeal is on, the very next reconcile would silently undo the
 # rescue. Only fixing the source itself (a `git revert` in the real lesson) makes the two agree
 # again. This drives a real cluster to the same shape of incident using an isolated probe
-# Application whose "source of truth" is an inline kustomize image override — changing that
+# Application whose "source of truth" is an inline kustomize image override: changing that
 # override is this script's stand-in for a git commit, so nothing is pushed to the shared
 # companion repo, but the rollback-then-diverge-then-fix sequence is the real thing.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
@@ -45,9 +45,9 @@ spec:
   source:
     repoURL: "${REPO}"
     targetRevision: main
-    # base, NOT overlays/prod — the prod overlay pins its own namespace, and a manifest's own
+    # base, NOT overlays/prod: the prod overlay pins its own namespace, and a manifest's own
     # namespace wins over destination.namespace, so this probe would silently land in the real
-    # storefront-prod namespace S03 L08's own runbook builds. base pins none, so
+    # storefront-prod namespace the lesson builds. base pins none, so
     # destination.namespace applies cleanly. Replica count (base: 1, prod: 3) is not part of
     # what this script defends.
     path: apps/storefront/base
@@ -68,7 +68,7 @@ wait_for_sync "${APP}" 180
 step "ship the incident: the source of truth itself now declares the bad tag, and a normal sync ships it"
 app_yaml "${BAD_IMAGE}" | kubectl apply -f - >/dev/null
 argocd app sync "${APP}" >/dev/null 2>&1 || true
-# Measured on v3.5.3 (D-333): an image-pull failure reads Progressing, not Degraded, until the
+# Measured on v3.5.3: an image-pull failure reads Progressing, not Degraded, until the
 # Deployment's progressDeadlineSeconds (600 s by default) passes. The lesson opens on exactly that
 # state ("Synced / Progressing", the stuck Pod beside the old ones), so this waits for the pull
 # error on the new Pod and then reads Progressing, instead of waiting 10 minutes for Degraded.
@@ -88,32 +88,32 @@ fi
 
 step "find the last good revision"
 good_id="$(argocd app history "${APP}" 2>/dev/null | awk 'NR>1{print $1}' | sort -n | head -1)"
-[ -n "${good_id}" ] || _fail "argocd app history returned no revisions — cannot test rollback without a history to roll back through"
+[ -n "${good_id}" ] || _fail "argocd app history returned no revisions: cannot test rollback without a history to roll back through"
 _pass "last good revision is history ID ${good_id}"
 
-step "roll back — service must be restored fast"
+step "roll back: service must be restored fast"
 argocd app rollback "${APP}" "${good_id}" >/dev/null
 wait_for_rollout "deployment/storefront" "${NS}"
 live_image="$(kubectl get deployment storefront -n "${NS}" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
 if [ "${live_image}" = "hashicorp/http-echo:1.0" ]; then
   _pass "rollback restored the working image on the live Deployment: ${live_image}"
 else
-  _fail "expected hashicorp/http-echo:1.0 running after rollback, got '${live_image:-empty}' — rollback did not actually restore service"
+  _fail "expected hashicorp/http-echo:1.0 running after rollback, got '${live_image:-empty}': rollback did not actually restore service"
 fi
 
 step "the gap rollback leaves behind: the Application's OWN source still declares the bad tag"
 argocd app get "${APP}" --refresh >/dev/null 2>&1 || true
 after_rollback_sync="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
 if [ "${after_rollback_sync}" = "OutOfSync" ]; then
-  _pass "OutOfSync after rollback — the live cluster runs the good image, but the declared source still says the bad one. This is the divergence a durable fix has to close."
+  _pass "OutOfSync after rollback: the live cluster runs the good image, but the declared source still says the bad one. This is the divergence a durable fix has to close."
 else
-  _fail "expected OutOfSync after a rollback whose source was never fixed, got '${after_rollback_sync:-empty}' — rollback is not supposed to reconcile the source of truth, only the live objects"
+  _fail "expected OutOfSync after a rollback whose source was never fixed, got '${after_rollback_sync:-empty}': rollback is not supposed to reconcile the source of truth, only the live objects"
 fi
 
 step "the durable fix: correct the source itself (this script's stand-in for git revert), and Git/cluster agree again"
 app_yaml "${GOOD_IMAGE}" | kubectl apply -f - >/dev/null
 argocd app sync "${APP}" >/dev/null
 wait_for_sync "${APP}" 120
-_pass "source fixed and synced — Synced/Healthy, no divergence left standing"
+_pass "source fixed and synced: Synced/Healthy, no divergence left standing"
 
 smoke_done

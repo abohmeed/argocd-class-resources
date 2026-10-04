@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# ACD-119
-# S03 L04 — Argo CD has no opinion about a Certificate; the Lua health check gives it one.
+# lesson: s03_l04 Writing a custom health check for a CRD Argo CD doesn't understand
+# Argo CD has no opinion about a Certificate; the Lua health check gives it one.
 #
 # The lesson's claim: a cert-manager Certificate, once created, reads Healthy in Argo CD's
-# DEFAULT health computation regardless of whether cert-manager ever actually issues it — Argo
+# DEFAULT health computation regardless of whether cert-manager ever actually issues it: Argo
 # CD has no built-in rule for a kind it doesn't recognize, so it defaults to Healthy the instant
 # the object exists. Only a custom Lua health check
 # (resource.customizations.health.cert-manager.io_Certificate) makes the reported status track
 # the real `status.conditions[type=Ready]` value. This is proven two ways below: a Certificate
-# that can NEVER issue (bad issuerRef, so there is no timing race — it stays Ready:False
+# that can NEVER issue (bad issuerRef, so there is no timing race: it stays Ready:False
 # forever) still reads Healthy under the default rules, and reads Progressing once the Lua check
 # is active; a real one, with the Lua check active, reads Healthy only once it is genuinely
 # Ready.
 #
 # argocd-cm is itself GitOps-managed by the `argocd` self-manage Application with
-# selfHeal:true (S02 L10) — a live `kubectl patch` of it alone would be reverted within
+# selfHeal:true (from the self-management lesson, s02_l10.sh): a live `kubectl patch` of it alone would be reverted within
 # seconds, so this script disables that Application's own selfHeal for the duration of the
-# patch, exactly the way the lesson insists this must go through Git in a real take, and
+# patch, exactly the way the lesson insists this must go through Git in real use, and
 # restores it (and argocd-cm) in cleanup regardless of how the script exits.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
@@ -29,16 +29,16 @@ tier cluster
 # unconfigured environment.
 argocd_cli_ready
 
-step "preconditions from S02 L08: cert-manager and selfsigned-issuer must already be on the cluster"
+step "preconditions from the TLS lesson (s02_l08.sh): cert-manager and selfsigned-issuer must already be on the cluster"
 kubectl get deploy -n cert-manager >/dev/null 2>&1 \
-  || _fail "no cert-manager deployment found — this is S02 L08's own setup, not S03 L04's; restage S02 L08 before this script can run"
+  || _fail "no cert-manager deployment found: it comes from the TLS lesson (s02_l08.sh), not this one; run that lesson's setup before this script"
 kubectl get clusterissuer selfsigned-issuer >/dev/null 2>&1 \
-  || _fail "ClusterIssuer selfsigned-issuer not found — S02 L08's setup is missing; restage it first"
+  || _fail "ClusterIssuer selfsigned-issuer not found: the TLS lesson's setup (s02_l08.sh) is missing; run it first"
 _pass "cert-manager and selfsigned-issuer are present"
 
-step "confirm the argocd Application (self-management) exists, name and shape from S02 L10"
+step "confirm the argocd Application (self-management) exists, name and shape from the self-management lesson (s02_l10.sh)"
 kubectl get application argocd -n argocd >/dev/null 2>&1 \
-  || _fail "no Application named 'argocd' in the argocd namespace — S02 L10's self-management is missing; this script cannot safely test the Lua-through-Git claim without it"
+  || _fail "no Application named 'argocd' in the argocd namespace: the self-management from s02_l10.sh is missing; this script cannot safely test the Lua-through-Git claim without it"
 
 APP="s03l04-probe"
 NS="s03l04-probe"
@@ -60,7 +60,7 @@ trap cleanup EXIT
 
 kubectl create namespace "${NS}" >/dev/null 2>&1 || true
 
-step "create the probe Application — its own namespace, manual sync, nothing pruned"
+step "create the probe Application: its own namespace, manual sync, nothing pruned"
 cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -68,13 +68,13 @@ metadata: {name: ${APP}, namespace: argocd}
 spec:
   project: default
   # source is a placeholder, never synced without --local below (base, so it carries no
-  # namespace opinion of its own even inert — overlays pin their own namespace).
+  # namespace opinion of its own even inert: overlays pin their own namespace).
   source: {repoURL: "https://github.com/abohmeed/argocd-class-resources.git", targetRevision: main, path: apps/storefront/base}
   destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
   syncPolicy: {}
 EOF
 
-step "sync a Certificate that can NEVER issue (bad issuerRef) — no timing race, it stays Ready:False forever"
+step "sync a Certificate that can NEVER issue (bad issuerRef): no timing race, it stays Ready:False forever"
 mkdir -p "${TMPDIR}/broken"
 cat > "${TMPDIR}/broken/certificate.yaml" <<EOF
 apiVersion: cert-manager.io/v1
@@ -94,9 +94,9 @@ sleep 15
 step "under DEFAULT (uncustomized) health rules, Argo CD reports it Healthy anyway"
 health="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.status.resources[?(@.name=="s03l04-broken")].health.status}' 2>/dev/null || true)"
 if [ "${health}" = "Healthy" ]; then
-  _pass "a Certificate that will NEVER issue still reads Healthy under Argo CD's default rules — the false-positive the lecture opens on"
+  _pass "a Certificate that will NEVER issue still reads Healthy under Argo CD's default rules: the false positive the lesson opens on"
 else
-  _fail "expected the default rules to report Healthy for an unrecognized kind, got '${health:-empty}' — either Argo CD gained a built-in cert-manager health check or this repo's default health behaviour has changed; the lecture's cold open no longer reproduces"
+  _fail "expected the default rules to report Healthy for an unrecognized kind, got '${health:-empty}': either Argo CD gained a built-in cert-manager health check or this repo's default health behaviour has changed; the problem the lesson opens on no longer reproduces"
 fi
 
 step "write the Lua health check through a (temporary, self-cleaning) argocd-cm patch, not a live one-off edit"
@@ -138,9 +138,9 @@ while [ "$(date +%s)" -lt "${deadline}" ]; do
   sleep 5
 done
 if [ "${health}" = "Progressing" ]; then
-  _pass "with the Lua check active, the same never-issuing Certificate now reads Progressing — health tracks the real Ready condition"
+  _pass "with the Lua check active, the same never-issuing Certificate now reads Progressing: health tracks the real Ready condition"
 else
-  _fail "expected Progressing once the Lua health check was active, got '${health:-empty}' — the Lua customization did not take effect, or its condition-reading logic is broken"
+  _fail "expected Progressing once the Lua health check was active, got '${health:-empty}': the Lua customization did not take effect, or its condition-reading logic is broken"
 fi
 
 step "a Certificate that CAN issue reads Healthy only once it genuinely is"
@@ -167,9 +167,9 @@ while [ "$(date +%s)" -lt "${deadline}" ]; do
   sleep 5
 done
 if [ "${good_health}" = "Healthy" ]; then
-  _pass "the real Certificate reached Ready and the Lua check reported Healthy — the honest positive case, not just an always-Progressing stub"
+  _pass "the real Certificate reached Ready and the Lua check reported Healthy: the honest positive case, not just an always-Progressing stub"
 else
-  _fail "the real Certificate never read Healthy under the Lua check (got '${good_health:-empty}') — either issuance failed or the check's True-condition branch is broken"
+  _fail "the real Certificate never read Healthy under the Lua check (got '${good_health:-empty}'): either issuance failed or the check's True-condition branch is broken"
 fi
 
 smoke_done

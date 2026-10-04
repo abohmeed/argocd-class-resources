@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
-# ACD-108
-# S07 L06 — the RBAC model: argocd-rbac-cm, policy syntax, policy.default.
+# lesson: s07_l06 Argo CD RBAC: argocd-rbac-cm, policy.csv syntax, and policy.default
+# The RBAC model: argocd-rbac-cm, policy syntax, policy.default.
 #
 # Three claims, staged the way the lesson stages them:
 #   1. An account matching no `g` line falls back to `policy.default` alone.
-#   2. The runbook's own fact-check gap: bootstrap/install.yaml ships argocd-rbac-cm with NO
-#      policy.default key at all, and Argo CD's documented behavior when it's unset is NO ACCESS —
-#      not role:readonly. That's worth asserting directly, not assumed away like the runbook does
-#      for the sake of a clean take.
-#   3. A `p`+`g` line pair grants exactly the one action named — nothing broader.
+#   2. bootstrap/install.yaml ships argocd-rbac-cm with NO policy.default key at all, and Argo
+#      CD's documented behavior when it's unset is NO ACCESS, not role:readonly. That's worth
+#      asserting directly rather than assuming.
+#   3. A `p`+`g` line pair grants exactly the one action named: nothing broader.
 #
-# This is instance-wide RBAC, mutated directly on argocd-rbac-cm/argocd-cm — the same ConfigMaps a
-# recording session edits. On the ephemeral, built-from-nothing CI cluster this runs against, that
-# is fine; the script still snapshots and restores both ConfigMaps' original values so it is safe
-# to run more than once, or alongside S07 L07/L08/L12, on the same cluster.
+# This is instance-wide RBAC, mutated directly on argocd-rbac-cm/argocd-cm: the same ConfigMaps a
+# student edits in the lesson. On the ephemeral, built-from-nothing CI cluster this runs against,
+# that is fine; the script still snapshots and restores both ConfigMaps' original values so it is
+# safe to run more than once, or alongside s07_l07.sh, s07_l08.sh and s07_l12.sh, on the same cluster.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 lesson S07-L06 "unset policy.default means no access (not role:readonly); set to role:readonly it grants read only; a p+g line pair grants exactly the one action it names"
@@ -37,7 +36,7 @@ HAD_DEFAULT="no"
 
 restore_rbac_cm() {
   if [ "${HAD_CSV}" = "yes" ]; then
-    # jq -Rs . slurps raw stdin into a single, correctly-escaped JSON string — policy.csv is
+    # jq -Rs . slurps raw stdin into a single, correctly-escaped JSON string: policy.csv is
     # multi-line, and this repo does not use Python anywhere (ADR-016) to do that escaping by hand.
     local csv_json
     csv_json="$(printf '%s' "${ORIG_CSV}" | jq -Rs .)"
@@ -68,10 +67,10 @@ cleanup() {
 trap cleanup EXIT
 
 if ! command -v argocd >/dev/null 2>&1; then
-  _fail "argocd CLI not on PATH — policy.csv/policy.default are only enforced behind the real API"
+  _fail "argocd CLI not on PATH: policy.csv/policy.default are only enforced behind the real API"
 fi
 if ! command -v jq >/dev/null 2>&1; then
-  _fail "jq not on PATH — needed to safely restore argocd-rbac-cm's multi-line policy.csv on exit"
+  _fail "jq not on PATH: needed to safely restore argocd-rbac-cm's multi-line policy.csv on exit"
 fi
 
 step "snapshot argocd-rbac-cm before touching it, so this script can restore it exactly"
@@ -85,7 +84,7 @@ if [ -n "${default_present}" ]; then
 fi
 _pass "snapshotted (had policy.csv: ${HAD_CSV}, had policy.default: ${HAD_DEFAULT})"
 
-step "force a clean baseline: no policy.csv, no policy.default — the shipped, freshly-installed state per bootstrap/install.yaml"
+step "force a clean baseline: no policy.csv, no policy.default: the shipped, freshly-installed state per bootstrap/install.yaml"
 kubectl patch configmap argocd-rbac-cm -n argocd --type json \
   -p '[{"op":"remove","path":"/data/policy.csv"}]' >/dev/null 2>&1 || true
 kubectl patch configmap argocd-rbac-cm -n argocd --type json \
@@ -97,7 +96,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata: {name: ${PROJ}, namespace: argocd}
 spec:
-  description: "S07 L06 smoke probe — not the real checkout project."
+  description: "Smoke-test probe: not the real checkout project."
   sourceRepos: ["${REPO}"]
   destinations:
     - {server: "https://kubernetes.default.svc", namespace: "${NS}"}
@@ -128,33 +127,33 @@ argocd account update-password --account "${ACCOUNT}" --new-password "${PASSWORD
   --current-password "${ADMIN_PW}" --grpc-web >/dev/null
 wait_for_sync "${APP}" 180
 
-step "no policy.default at all: the unmapped account gets NO access, not read-only — this is the runbook's own flagged fact-check gap"
+step "no policy.default at all: the unmapped account gets NO access, not read-only: a default worth checking rather than assuming"
 argocd login "localhost:${PORT}" --insecure --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
 if argocd app get "${APP}" --grpc-web >/dev/null 2>&1; then
-  _fail "an account with no g-line and no policy.default could still read ${APP} — Argo CD's documented 'unset = no access' default does not hold"
+  _fail "an account with no g-line and no policy.default could still read ${APP}: Argo CD's documented 'unset = no access' default does not hold"
 else
-  _pass "unmapped account, no policy.default set: read is denied too — confirms 'unset means no access', not an implicit role:readonly"
+  _pass "unmapped account, no policy.default set: read is denied too: confirms 'unset means no access', not an implicit role:readonly"
 fi
 
-step "set policy.default: role:readonly — now read works, create still does not"
+step "set policy.default: role:readonly: now read works, create still does not"
 argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p '{"data":{"policy.default":"role:readonly"}}' >/dev/null
 sleep 5
 argocd login "localhost:${PORT}" --insecure --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
 if argocd app get "${APP}" --grpc-web >/dev/null 2>&1; then
-  _pass "policy.default: role:readonly — the account can now read ${APP}"
+  _pass "policy.default: role:readonly: the account can now read ${APP}"
 else
   _fail "policy.default: role:readonly did not grant read access"
 fi
 if argocd app create "${APP2}" --repo "${REPO}" --path apps/storefront/manifests \
      --dest-server https://kubernetes.default.svc --dest-namespace "${NS}" --project "${PROJ}" \
      --grpc-web >/dev/null 2>&1; then
-  _fail "role:readonly was able to create an Application — readonly is not read-only"
+  _fail "role:readonly was able to create an Application: readonly is not read-only"
 else
   _pass "role:readonly still refuses create, as the lesson claims"
 fi
 
-step "grant one narrow p+g line pair: create on this project only — create now works, delete still does not"
+step "grant one narrow p+g line pair: create on this project only: create now works, delete still does not"
 argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
   "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, create, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
@@ -168,9 +167,9 @@ else
   _fail "the explicit p+g pair for 'create' did not grant it"
 fi
 if argocd app delete "${APP2}" --yes --grpc-web >/dev/null 2>&1; then
-  _fail "the account could delete ${APP2}, but no delete policy line was ever written — it gained more than the one line grants"
+  _fail "the account could delete ${APP2}, but no delete policy line was ever written: it gained more than the one line grants"
 else
-  _pass "delete still refused — the account gained exactly the one ability the policy line names, nothing else"
+  _pass "delete still refused: the account gained exactly the one ability the policy line names, nothing else"
 fi
 
 smoke_done

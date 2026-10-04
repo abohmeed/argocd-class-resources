@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
-# ACD-88
-# S07 L02 — fencing an AppProject: sourceRepos and destinations.
+# lesson: s07_l02 Fencing an AppProject: sourceRepos and destinations
+# Fencing an AppProject: sourceRepos and destinations.
 #
 # Two claims, defended two ways.
 #
 # 1. Repo-tier, and it runs first, unconditionally: `teams/_template/README.md` says "CI enforces
-#    that every teams/<name>/ directory matches this shape" — and nothing currently does. This
-#    lesson is where the runbook itself draws the student's eye to teams/_template/ and
+#    that every teams/<name>/ directory matches this shape", and nothing currently does. This
+#    lesson is where the lesson itself draws the student's eye to teams/_template/ and
 #    teams/checkout/ (to warn them apart from this lesson's own appproject-checkout.yaml), so it is
 #    where that unenforced claim gets enforced. It needs no cluster.
 #
 # 2. Cluster-tier: sourceRepos is checked BEFORE Argo CD tries to reach the URL, so an unreachable,
-#    unapproved fork is refused for the same reason an approved-but-unreachable one would be — and
+#    unapproved fork is refused for the same reason an approved-but-unreachable one would be, and
 #    a destination outside `destinations` is refused for an unrelated reason (the namespace, not
 #    the repo). Built with throwaway objects, never the real `checkout` AppProject/apps the
-#    recording session is accumulating state in across this section.
+#    lessons accumulate state in across this section.
 #
 # The throwaway "good repo" test intentionally uses apps/storefront/manifests, not
-# apps/checkout/overlays/dev — that overlay's kustomization.yaml hardcodes `namespace:
-# checkout-dev`, which is the real recording session's own namespace. Pointing a CI script at it
-# risks the same Kustomize-stamps-the-namespace ambiguity S07 L01 flags AND risks a cleanup trap
-# deleting namespace checkout-dev out from under the producer. Plain-directory content proves the
+# apps/checkout/overlays/dev: that overlay's kustomization.yaml hardcodes `namespace:
+# checkout-dev`, which is the namespace the lessons themselves use. Pointing a CI script at it
+# risks the same Kustomize-stamps-the-namespace ambiguity s07_l01.sh notes AND risks a cleanup
+# trap deleting namespace checkout-dev out from under the lessons. Plain-directory content proves the
 # same sourceRepos/destinations claim without either risk.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
@@ -56,7 +56,7 @@ for f in teams/*/appproject.yaml; do
   fi
 done
 
-step "every committed RBAC policy line carries its trailing effect (S07 L06/L11: omitting it is a common, silent error)"
+step "every committed RBAC policy line carries its trailing effect (omitting it is a common, silent error)"
 for f in teams/*/rbac-policy.csv.snippet; do
   [ -f "${REPO_ROOT}/${f}" ] || continue
   bad=""
@@ -98,7 +98,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata: {name: ${PROJ}, namespace: argocd}
 spec:
-  description: "S07 L02 smoke probe — not the real checkout project."
+  description: "Smoke-test probe: not the real checkout project."
   sourceRepos: ["${REPO}"]
   destinations:
     - {server: "https://kubernetes.default.svc", namespace: "${NS}"}
@@ -118,9 +118,9 @@ EOF
 sleep 20
 sync_status="$(kubectl get application "${APP_BAD}" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
 if [ "${sync_status}" = "Synced" ]; then
-  _fail "an Application sourced from an unapproved repo reached Synced — sourceRepos is not being enforced"
+  _fail "an Application sourced from an unapproved repo reached Synced: sourceRepos is not being enforced"
 else
-  _pass "unapproved-repo Application never reached Synced (status: ${sync_status:-none yet}) — sourceRepos refused it"
+  _pass "unapproved-repo Application never reached Synced (status: ${sync_status:-none yet}): sourceRepos refused it"
 fi
 
 step "the approved repo, into the approved namespace, succeeds"
@@ -159,7 +159,7 @@ EOF
 sleep 20
 sync_status="$(kubectl get application "${APP_WRONG}" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
 if [ "${sync_status}" = "Synced" ] || kubectl get namespace "${WRONG_NS}" >/dev/null 2>&1; then
-  _fail "an Application targeting a namespace outside destinations was allowed through — destinations is not being enforced"
+  _fail "an Application targeting a namespace outside destinations was allowed through: destinations is not being enforced"
 else
   _pass "approved repo, unapproved namespace: refused, and ${WRONG_NS} was never created"
 fi

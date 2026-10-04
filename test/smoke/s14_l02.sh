@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# ACD-174
-# S14 L02 — an AppProject's sourceRepos/destinations pair is default-deny: retargeting an
+# lesson: s14_l02 One team, properly fenced
+# An AppProject's sourceRepos/destinations pair is default-deny: retargeting an
 # Application outside the allowed namespace pattern is REFUSED by the API, not merely hidden
 # in a UI. The SSO/RBAC half of this lesson (Dex→Authentik, federated_claims.user_id, the
 # Argo-CD-3.0 logs permission) needs a live identity provider this checkout cannot stand up, so
 # that half is declared rather than faked.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S14-L02 "an AppProject's destinations pattern refuses a retarget outside it — a real fence, not a UI hint"
+lesson S14-L02 "an AppProject's destinations pattern refuses a retarget outside it: a real fence, not a UI hint"
 tier cluster
 
 step "repo-tier: teams/checkout/appproject.yaml scopes destinations to checkout-*, with no cluster-scoped resources allowed"
@@ -18,7 +18,7 @@ assert_file_contains "teams/checkout/appproject.yaml" 'clusterResourceWhitelist:
   "checkout's AppProject grants no cluster-scoped resources by default"
 assert_exists_file "teams/checkout/rbac-policy.csv.snippet"
 assert_file_contains "teams/checkout/rbac-policy.csv.snippet" 'p, role:checkout-lead, logs, get, checkout/\*, allow' \
-  "checkout's RBAC snippet grants the post-3.0 logs resource explicitly — update/delete alone would not"
+  "checkout's RBAC snippet grants the post-3.0 logs resource explicitly: update/delete alone would not"
 
 PROJ="s14l02-fence"
 APP="s14l02-fence-probe"
@@ -61,9 +61,9 @@ out="$(kubectl patch application "${APP}" -n argocd --type merge \
   -p '{"spec":{"destination":{"namespace":"argocd"}}}' 2>&1)" && rc=0 || rc=$?
 current_ns="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.spec.destination.namespace}' 2>/dev/null || true)"
 if [ "${rc}" -ne 0 ] || [ "${current_ns}" != "argocd" ]; then
-  _pass "the AppProject fence held — the Application was not retargeted to a namespace outside its allowed pattern"
+  _pass "the AppProject fence held: the Application was not retargeted to a namespace outside its allowed pattern"
 else
-  _fail "the retarget to 'argocd' namespace SUCCEEDED against a project scoped to '${NS}' only — the fence this lesson builds did not hold:\n${out}"
+  _fail "the retarget to 'argocd' namespace SUCCEEDED against a project scoped to '${NS}' only: the fence this lesson builds did not hold:\n${out}"
 fi
 
 smoke_done

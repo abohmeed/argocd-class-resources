@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# ACD-140
-# S09 L05 — narrowing the default cluster credential via impersonation.
+# lesson: s09_l05 Narrowing the credential argocd cluster add hands out
+# Narrowing the default cluster credential via impersonation.
 #
 # The claim: `argocd cluster add`'s default ServiceAccount grants a wide-open ClusterRole on the
 # managed cluster, and Service Account Impersonation narrows the Application's effective identity
-# to a scoped Role — proven live by syncing against the narrow Role, watching it fail on a missing
+# to a scoped Role: proven live by syncing against the narrow Role, watching it fail on a missing
 # verb, then succeed once the verb is added. This is inherently a two-cluster story (hub + prod-us)
 # and inherently behavioural (a live sync failing and then succeeding), so none of it reproduces
-# on a single-node CI cluster. The repo-side invariant this lesson shares with the rest of S09:
+# on a single-node CI cluster. The repo-side invariant this lesson shares with the rest of this section:
 # no committed manifest hardcodes a cluster address.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
@@ -15,7 +15,7 @@ lesson S09-L05 "the default argocd cluster add credential is wide open; imperson
 tier external
 
 step "repo-side invariant: no hardcoded private/loopback IP in any committed manifest"
-# An array, not a space-joined string — REPO_ROOT contains spaces ("Mastering GitOps with Argo
+# An array, not a space-joined string: REPO_ROOT contains spaces ("Mastering GitOps with Argo
 # CD"), and a space-joined path list silently word-splits into bogus grep targets that read
 # nothing and report a green tick for a scan that never ran.
 targets=()
@@ -31,7 +31,7 @@ else
 fi
 
 step "repo-side invariant: any committed narrowed Role for a managed cluster grants no wildcard verb"
-# S09 L05's whole point is narrowing away from the wide-open default ClusterRole argocd
+# this lesson's whole point is narrowing away from the wide-open default ClusterRole argocd
 # cluster add creates. A committed "narrowed" Role that still grants '*' verbs or resources
 # would be the lesson contradicting itself in its own companion repo.
 if [ -d "${REPO_ROOT}/platform/clusters" ]; then
@@ -46,14 +46,14 @@ if [ -d "${REPO_ROOT}/platform/clusters" ]; then
     if [ -z "${bad}" ]; then
       _pass "the committed narrowed Role grants no wildcard verb or resource"
     else
-      _fail "a narrowed Role still grants a wildcard — that is the default credential this lesson exists to replace:${bad}"
+      _fail "a narrowed Role still grants a wildcard: that is the default credential this lesson exists to replace:${bad}"
     fi
   else
     _pass "platform/clusters/ exists but the narrowed Role isn't committed yet"
   fi
 else
-  _pass "platform/clusters/ not committed yet — S09 L05 authors the narrowed Role live"
+  _pass "platform/clusters/ not committed yet: this lesson authors the narrowed Role live"
 fi
 
 needs_external "a second cluster (prod-us) with a real argocd-manager ClusterRoleBinding, and AppProject impersonation configured" \
-  "verified by hand: the default ClusterRoleBinding grants '*' verbs/resources/API groups; a sync under the narrowed Role fails on the missing 'patch' verb (Argo CD's normal apply path patches an existing resource) and succeeds once it's added — this needs a second managed cluster, which this single k3s CI node does not have"
+  "verified by hand: the default ClusterRoleBinding grants '*' verbs/resources/API groups; a sync under the narrowed Role fails on the missing 'patch' verb (Argo CD's normal apply path patches an existing resource) and succeeds once it's added: this needs a second managed cluster, which this single k3s CI node does not have"

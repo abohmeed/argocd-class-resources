@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ACD-189
-# S08 L03 (repo invariant, D-382): every ApplicationSet labels what it generates with its own name.
+# lesson: s08_l03 List generator: naming a short fleet explicitly
+# Repo invariant: every ApplicationSet labels what it generates with its own name.
 #
 # Argo CD v3.5.3 adds no label to the Applications an ApplicationSet generates; the only link back
 # is the ownerReference (applicationset_controller.go at v3.5.3 copies the template's labels and
@@ -9,7 +9,7 @@
 #     spec.template.metadata.labels.appset: <the ApplicationSet's own metadata.name>
 # and every lesson lists its Applications with "kubectl get applications -n argocd -l appset=<name>".
 # A committed ApplicationSet without that label, or with a label that names a different
-# ApplicationSet, makes a lesson's listing print "No resources found" (or the wrong fleet) on camera.
+# ApplicationSet, makes a lesson's listing print "No resources found" (or the wrong fleet).
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 lesson S08-L03 "every committed ApplicationSet carries appset=<its own name> on its template, and every smoke script that selects on it sets it"
@@ -66,6 +66,6 @@ for s in "${REPO_ROOT}"/test/smoke/s*.sh; do
     && _pass "$(basename "$s") sets appset=\${APPSET} on the template it applies" \
     || _fail "$(basename "$s") selects -l appset=\${APPSET} but the ApplicationSet it applies never sets that label"
 done
-[ "${users}" -ge 3 ] || _fail "expected at least 3 smoke scripts selecting -l appset=\${APPSET} (S08 L03, L05, L13), found ${users}"
+[ "${users}" -ge 3 ] || _fail "expected at least 3 smoke scripts selecting -l appset=\${APPSET} (s08_l03.sh, s08_l05.sh, s08_l13.sh), found ${users}"
 
 smoke_done

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# ACD-191
-# S08 L05 — Git generator, directory mode.
+# lesson: s08_l05 Git generator, directory mode: folders drive the fleet
+# Git generator, directory mode.
 #
 # The lesson's claim: a directories generator pointed at apps/storefront/overlays/* produces
 # one Application per matched folder, named and sourced from {{.path.basename}}/{{.path.path}},
-# with none of them hand-named — and a folder that later appears in Git is picked up with no
-# edit to the ApplicationSet. The runbook's own choreography builds `canary` live and pushes
+# with none of them hand-named, and a folder that later appears in Git is picked up with no
+# edit to the ApplicationSet. The lesson's own choreography builds `canary` live and pushes
 # three new commits (canary, prod-test, integration-test) to prove the discovery and the
 # exclude-glob behaviour; this script does not replay that git history against the real
 # upstream repo. Instead it defends the discovery claim against the overlays that are ALREADY
-# committed there — dev, staging, prod, canary — which is exactly the "four real folders, zero
+# committed there: dev, staging, prod, canary, which is exactly the "four real folders, zero
 # hand-naming" claim without mutating the shared companion repo from CI.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
@@ -32,7 +32,7 @@ assert_exists_dir "apps/storefront/overlays/staging"
 assert_exists_dir "apps/storefront/overlays/prod"
 assert_exists_dir "apps/storefront/overlays/canary"
 
-step "Step 1/2 — apply the directory-mode generator against the real companion repo"
+step "Step 1/2: apply the directory-mode generator against the real companion repo"
 cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
@@ -73,7 +73,7 @@ done
 if [ "${found}" = yes ]; then
   _pass "four Applications discovered from four committed folders, none hand-named"
 else
-  _fail "expected 4 Applications (dev/staging/prod/canary) within 240s, found ${count:-0} — the directory generator did not discover every committed overlay; RESTAGE BEFORE RECORDING"
+  _fail "expected 4 Applications (dev/staging/prod/canary) within 240s, found ${count:-0}: the directory generator did not discover every committed overlay"
 fi
 
 step "each Application's source path is the matched folder's own path, verbatim"

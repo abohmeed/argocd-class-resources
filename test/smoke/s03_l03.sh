@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# ACD-112
-# S03 L03 — sync status and health status are independent axes.
+# lesson: s03_l03 Sync status vs health status: two different questions
+# Sync status and health status are independent axes.
 #
 # The lesson's whole point is the contrast: a bad image tag, once synced, makes the Application
 # Synced (the cluster now matches the declared desired state exactly, bad tag included) AND
 # Degraded (the container can't actually run) at the same time. If a future Argo CD ever folded
-# health into the sync computation — or started refusing to mark a broken rollout "Synced" — the
-# lecture's central "the dashboard shows a green badge and the app is down" hook goes false. This
-# drives a real cluster to the SAME independent-axes state the runbook reaches with a bad tag
+# health into the sync computation, or started refusing to mark a broken rollout "Synced", the
+# lesson's central "the dashboard shows a green badge and the app is down" hook goes false. This
+# drives a real cluster to the SAME independent-axes state the lesson reaches with a bad tag
 # pushed to Git, using an Application-level image override instead of a commit to the shared
 # companion repo (this script never writes to that repo).
 #
-# Measured on v3.5.3 (D-333), and what the lesson now says: health reads Progressing first, and
+# Measured on v3.5.3, and what the lesson now says: health reads Progressing first, and
 # only turns Degraded once the Deployment's progressDeadlineSeconds passes (600 s by default).
 # The probe lowers that deadline to 30 s with an Application-level kustomize patch, so it can
-# assert the whole sequence the lesson narrates (Synced + Progressing, then Synced + Degraded)
+# assert the whole sequence the lesson shows (Synced + Progressing, then Synced + Degraded)
 # in about a minute instead of ten.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
@@ -50,7 +50,7 @@ spec:
   source:
     repoURL: "${REPO}"
     targetRevision: main
-    # base, NOT overlays/dev — the dev overlay pins its own namespace, and a manifest's own
+    # base, NOT overlays/dev: the dev overlay pins its own namespace, and a manifest's own
     # namespace wins over destination.namespace, so this probe would silently land in the real,
     # shared storefront-dev namespace. base pins none, so destination.namespace applies cleanly.
     path: apps/storefront/base
@@ -70,7 +70,7 @@ EOF
 
 step "sync a KNOWN-broken image tag as the declared desired state (Application-level override, no Git write)"
 # hashicorp/http-echo=<bad tag> replaces the base image name and tag in one kustomize override,
-# exactly as the runbook's Step 1 does by editing apps/storefront/base/deployment.yaml directly.
+# exactly as the lesson's Step 1 does by editing apps/storefront/base/deployment.yaml directly.
 app_yaml "hashicorp/http-echo=${BAD_IMAGE}" | kubectl apply -f - >/dev/null
 argocd app sync "${APP}" >/dev/null 2>&1 || true
 
@@ -97,9 +97,9 @@ fi
 
 step "confirm the reason is what the lesson names: an image pull failure, not something else"
 if kubectl get events -n "${NS}" --field-selector reason=Failed 2>/dev/null | grep -qiE 'pull|image'; then
-  _pass "an image-pull failure event is present — Degraded means what the lesson says it means"
+  _pass "an image-pull failure event is present: Degraded means what the lesson says it means"
 else
-  _fail "no image-pull failure event found in ${NS} — Degraded health for an unrelated reason would misrepresent the lesson's cause"
+  _fail "no image-pull failure event found in ${NS}: Degraded health for an unrelated reason would misrepresent the lesson's cause"
 fi
 
 step "fix the tag: health recovers only once the rollout actually completes"
@@ -119,9 +119,9 @@ while [ "$(date +%s)" -lt "${deadline}" ]; do
 done
 drift_health="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
 if [ "${drift_sync}" = "OutOfSync" ] && [ "${drift_health}" = "Healthy" ]; then
-  _pass "OutOfSync + Healthy — drift without breakage, the mirror image of the earlier case"
+  _pass "OutOfSync + Healthy: drift without breakage, the mirror image of the earlier case"
 else
-  _fail "expected OutOfSync+Healthy after a live scale-up, got sync=${drift_sync:-?} health=${drift_health:-?} — watching health alone would no longer hide this kind of drift the way the lesson says it does"
+  _fail "expected OutOfSync+Healthy after a live scale-up, got sync=${drift_sync:-?} health=${drift_health:-?}: watching health alone would no longer hide this kind of drift the way the lesson says it does"
 fi
 
 smoke_done

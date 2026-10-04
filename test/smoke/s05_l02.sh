@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# ACD-90
-# S05 L02 — Sealed Secrets: cluster-scoped encryption, end to end.
+# lesson: s05_l02 Sealing a Kubernetes Secret with Sealed Secrets
+# Sealed Secrets: cluster-scoped encryption, end to end.
 #
 # Two claims worth defending here, both behavioural, not textual. First: a SealedSecret really is
-# opaque ciphertext that the controller — and only the controller, with its private key — can turn
+# opaque ciphertext that the controller, and only the controller, with its private key: can turn
 # back into the exact credential that went in. Second, and the one a demo alone won't show: the
 # default `strict` scope ties that ciphertext to ONE namespace and ONE Secret name. The same
-# SealedSecret object, copied into a different namespace, must NOT decrypt there — if it ever did,
+# SealedSecret object, copied into a different namespace, must NOT decrypt there: if it ever did,
 # `strict` would be theatre, not a real access boundary. Runs entirely in scratch namespaces this
 # script owns and tears down; it never touches the shared `checkout` Application.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 lesson S05-L02 "a SealedSecret decrypts to the exact credential sealed, and ONLY in the namespace it was scoped to"
 tier external
 
-# D-342: declared external for a measured RUNNER limit, not a lesson defect. The cluster body below
+# Declared external for a measured RUNNER limit, not a lesson defect. The cluster body below
 # is kept intact for a host that can run it; restore "tier cluster" and smoke_done when the limit is lifted.
 needs_external "a running Sealed Secrets controller" \
   "runner limit: the Sealed Secrets controller never became ready on the GitHub-hosted runner (run 37111303388), so nothing can be sealed or unsealed here"
@@ -41,8 +41,8 @@ kubectl rollout status deployment/sealed-secrets-controller -n kube-system --tim
   || _fail "sealed-secrets controller did not become ready"
 image="$(kubectl get deployment sealed-secrets-controller -n kube-system -o jsonpath='{.spec.template.spec.containers[0].image}')"
 case "${image}" in
-  bitnami/sealed-secrets:*) _pass "controller image is ${image} — the current bitnami org, not the retired bitnami-labs" ;;
-  *) _fail "controller image is ${image} — expected bitnami/sealed-secrets:*; bitnami-labs is retired and the wrong org would 404 a student's pull" ;;
+  bitnami/sealed-secrets:*) _pass "controller image is ${image}: the current bitnami org, not the retired bitnami-labs" ;;
+  *) _fail "controller image is ${image}: expected bitnami/sealed-secrets:*; bitnami-labs is retired and the wrong org would 404 a student's pull" ;;
 esac
 
 step "seal a scratch credential, strict-scoped to namespace ${NS_A}, and confirm the cluster decrypts it back"
@@ -71,17 +71,17 @@ for _ in $(seq 1 20); do
 done
 [ "${decrypted}" = "${SECRET_VALUE}" ] \
   && _pass "controller decrypted the SealedSecret back to the exact value sealed" \
-  || _fail "SealedSecret in ${NS_A} never decrypted to '${SECRET_VALUE}' (got '${decrypted}') — Sealed Secrets is broken or mis-scoped"
+  || _fail "SealedSecret in ${NS_A} never decrypted to '${SECRET_VALUE}' (got '${decrypted}'): Sealed Secrets is broken or mis-scoped"
 
-step "the SAME ciphertext, moved to namespace ${NS_B}, must NOT decrypt there — strict scope is a real boundary"
+step "the SAME ciphertext, moved to namespace ${NS_B}, must NOT decrypt there: strict scope is a real boundary"
 kubectl create namespace "${NS_B}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 sed "s/namespace: ${NS_A}/namespace: ${NS_B}/" "${WORKDIR}/sealed.yaml" > "${WORKDIR}/sealed-wrong-ns.yaml"
 kubectl apply -f "${WORKDIR}/sealed-wrong-ns.yaml" >/dev/null
 sleep 15
 if kubectl get secret probe -n "${NS_B}" >/dev/null 2>&1; then
-  _fail "a SealedSecret sealed for ${NS_A} decrypted in ${NS_B} — strict scope is not actually enforced; this is exactly the silent cross-namespace leak the lesson says cannot happen"
+  _fail "a SealedSecret sealed for ${NS_A} decrypted in ${NS_B}: strict scope is not actually enforced; this is exactly the silent cross-namespace leak the lesson says cannot happen"
 else
-  _pass "the SealedSecret does NOT decrypt in ${NS_B} — strict scope really does tie ciphertext to the namespace it was sealed for"
+  _pass "the SealedSecret does NOT decrypt in ${NS_B}: strict scope really does tie ciphertext to the namespace it was sealed for"
 fi
 
 # smoke_done  (unreachable while this script is tier external; restore with tier cluster)

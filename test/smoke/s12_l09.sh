@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# ACD-182
-# S12 L09 — timeout.reconciliation/jitter and the repo-server's parallelism limit are real,
+# lesson: s12_l09 Performance and tuning at scale
+# Timeout.reconciliation/jitter and the repo-server's parallelism limit are real,
 # live-editable knobs, and the defaults this lesson claims are the defaults this cluster
 # actually ships with.
 #
-# The lesson explicitly refuses to claim a specific before/after number — "traffic at Northwind
-# is not going to look like traffic anywhere else" — so this script does not chase one either.
+# The lesson explicitly refuses to claim a specific before/after number: "traffic at Northwind
+# is not going to look like traffic anywhere else", so this script does not chase one either.
 # What it defends: the two knobs exist, are unset by default (180s reconciliation, no jitter,
 # unlimited repo-server parallelism), and both apply cleanly when set.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
@@ -13,18 +13,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 lesson S12-L09 "timeout.reconciliation/jitter and ARGOCD_REPO_SERVER_PARALLELISM_LIMIT are live, unset-by-default knobs"
 tier cluster
 
-step "before any tuning, argocd-cm carries no explicit reconciliation timeout — the 180s default is implicit, not written"
+step "before any tuning, argocd-cm carries no explicit reconciliation timeout: the 180s default is implicit, not written"
 cm_data="$(kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.timeout\.reconciliation}' 2>/dev/null || true)"
 if [ -z "${cm_data}" ]; then
-  _pass "timeout.reconciliation is unset — this cluster is on the implicit 180s default, as the lesson opens"
+  _pass "timeout.reconciliation is unset: this cluster is on the implicit 180s default, as the lesson opens"
 else
-  _pass "timeout.reconciliation is already set to '${cm_data}' — a prior take tuned it; that is a valid state too, not a defect"
+  _pass "timeout.reconciliation is already set to '${cm_data}': an earlier run tuned it; that is a valid state too, not a defect"
 fi
 
-step "the repo-server's parallelism limit env var is not set by default — unlimited, not zero"
+step "the repo-server's parallelism limit env var is not set by default: unlimited, not zero"
 env_json="$(kubectl -n argocd get deploy argocd-repo-server -o jsonpath='{.spec.template.spec.containers[0].env}' 2>/dev/null || true)"
 if printf '%s' "${env_json}" | grep -q 'ARGOCD_REPO_SERVER_PARALLELISM_LIMIT'; then
-  _pass "ARGOCD_REPO_SERVER_PARALLELISM_LIMIT is already set — a prior take tuned it"
+  _pass "ARGOCD_REPO_SERVER_PARALLELISM_LIMIT is already set: an earlier run tuned it"
 else
   _pass "ARGOCD_REPO_SERVER_PARALLELISM_LIMIT is unset, matching the lesson's 'ships unset, meaning unlimited' claim"
 fi

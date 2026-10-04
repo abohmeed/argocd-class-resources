@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# ACD-189
-# S08 L03 — List generator: the smallest fleet you can name explicitly.
+# lesson: s08_l03 List generator: naming a short fleet explicitly
+# List generator: the smallest fleet you can name explicitly.
 #
 # Two claims: (1) a List generator with one map per element produces one Application per
 # element, all three synced without any of them being hand-named; (2) the ApplicationSet
-# controller owns the generated Application objects — a manual edit to a field it did not set
+# controller owns the generated Application objects: a manual edit to a field it did not set
 # gets reverted on the controller's own next reconcile, no selfHeal-style Argo CD sync policy
 # involved at all. This defends the second claim live, since it is the one a static read of the
-# repo cannot confirm (nothing here is committed — appset.yaml is scratch, same as L02).
+# repo cannot confirm (nothing here is committed: appset.yaml is scratch, same as in s08_l02.sh).
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 lesson S08-L03 "List generator produces one Application per element; the AppSet controller reverts a manual edit to a field it never set"
@@ -29,7 +29,7 @@ assert_exists_dir "apps/payments/overlays/dev"
 assert_exists_dir "apps/search/overlays/dev"
 assert_exists_dir "apps/loyalty/overlays/dev"
 
-step "Step 2/3 — apply the List generator, one map per service"
+step "Step 2/3: apply the List generator, one map per service"
 cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
@@ -63,7 +63,7 @@ spec:
         syncOptions: ["CreateNamespace=true"]
 EOF
 
-step "Step 4 — exactly three Applications, all Synced/Healthy, none hand-named"
+step "Step 4: exactly three Applications, all Synced/Healthy, none hand-named"
 wait_for_sync "payments-dev" 180
 wait_for_sync "search-dev" 180
 wait_for_sync "loyalty-dev" 180
@@ -71,11 +71,11 @@ count="$(kubectl get applications -n argocd -l appset=${APPSET} --no-headers | w
 [ "${count}" -eq 3 ] && _pass "exactly 3 Applications carry the appset=${APPSET} label their template sets" \
   || _fail "expected 3 Applications for ${APPSET}, found ${count}"
 
-step "Step 5 — hand-edit a label the controller never set, and watch it get reverted"
+step "Step 5: hand-edit a label the controller never set, and watch it get reverted"
 kubectl label application payments-dev -n argocd "demo.northwind.io/manual-edit=true" --overwrite >/dev/null
 immediately="$(kubectl get application payments-dev -n argocd -o jsonpath='{.metadata.labels.demo\.northwind\.io/manual-edit}')"
 [ "${immediately}" = "true" ] && _pass "the manual label is present immediately after the edit" \
-  || _fail "the manual label did not stick immediately after 'kubectl label' — cannot test the revert"
+  || _fail "the manual label did not stick immediately after 'kubectl label': cannot test the revert"
 
 reverted=no
 for _ in $(seq 1 24); do
@@ -84,9 +84,9 @@ for _ in $(seq 1 24); do
   if [ -z "${still}" ]; then reverted=yes; break; fi
 done
 if [ "${reverted}" = yes ]; then
-  _pass "the manual label was reverted by the ApplicationSet controller's own reconcile — the lesson's central claim holds"
+  _pass "the manual label was reverted by the ApplicationSet controller's own reconcile: the lesson's central claim holds"
 else
-  _fail "the manual label survived 240s of reconciles — the controller no longer enforces its generated manifest against drift on fields it owns; RESTAGE BEFORE RECORDING"
+  _fail "the manual label survived 240s of reconciles: the controller no longer enforces its generated manifest against drift on fields it owns"
 fi
 
 smoke_done
