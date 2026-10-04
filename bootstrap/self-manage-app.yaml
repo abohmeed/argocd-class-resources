@@ -21,7 +21,7 @@ spec:
     # root in S03, the edge AppProject in S08). Without this include, this Application
     # would sync those too, the moment they are committed.
     directory:
-      include: "{install.yaml,self-manage-app.yaml,argocd-repo-creds-sealed.yaml}"
+      include: "{install.yaml,self-manage-app.yaml}"
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
