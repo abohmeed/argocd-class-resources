@@ -1,4 +1,4 @@
-# S03 L09 — App of Apps.
+# App of Apps.
 #
 # This is the composition pattern for MANY children. It is not the same thing as
 # bootstrap/self-manage-app.yaml, which puts Argo CD itself under GitOps (one Application).

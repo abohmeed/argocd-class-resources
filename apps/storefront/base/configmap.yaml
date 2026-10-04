@@ -3,4 +3,4 @@ kind: ConfigMap
 metadata:
   name: storefront-banner
 data:
-  banner: "storefront v1 — base"
+  banner: "storefront v1: base"

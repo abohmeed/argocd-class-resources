@@ -1,8 +1,8 @@
-# S08 L12: templatePatch, an exception the template can't express, without forking the template.
+# templatePatch: an exception the template can't express, without forking the template.
 #
-# This is the lesson's answer key: the production fleet from the Cluster generator lesson (every
+# This is the finished version: the production fleet from the Cluster generator lesson (every
 # cluster labelled env=production, which is prod-us and staging-eu), plus the one exception the
-# lesson adds. On camera the lesson works on a scratch appset.yaml with this same content.
+# lesson adds. In the lesson you build this on a scratch appset.yaml with the same content.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:

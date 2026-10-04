@@ -22,7 +22,7 @@ spec:
             - "-text=$(BANNER)"
           env:
             # A plain literal, typed straight into this file. No ConfigMap, no Kustomize
-            # substitution, no plugin — Argo CD applies this value exactly as written.
+            # substitution, no plugin: Argo CD applies this value exactly as written.
             - name: BANNER
               value: "storefront v1"
           ports:

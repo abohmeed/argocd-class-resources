@@ -1,4 +1,4 @@
-# S02 L08 — Argo CD's own install manifest, committed so bootstrap/self-manage-app.yaml
+# Argo CD's own install manifest, committed so bootstrap/self-manage-app.yaml
 # (path: bootstrap, this same directory) can reconcile Argo CD's installation like any
 # other Application on this cluster.
 #
@@ -7,8 +7,8 @@
 #   curl -sSL -o bootstrap/install.yaml \
 #     https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.3/manifests/install.yaml
 #
-# Re-pin by re-running that curl against the new tag and committing the result — never
-# hand-edit the generated content below — it belongs to the upstream project, not this repo.
+# Re-pin by re-running that curl against the new tag and committing the result. Never
+# hand-edit the generated content below: it belongs to the upstream project, not this repo.
 #
 # This is an auto-generated file. DO NOT EDIT
 apiVersion: apiextensions.k8s.io/v1

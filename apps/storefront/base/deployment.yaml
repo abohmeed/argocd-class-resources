@@ -25,7 +25,7 @@ spec:
           env:
             # Sourced from the ConfigMap as an ENV VAR, deliberately.
             # A mounted ConfigMap key is eventually refreshed by the kubelet; an env var is read
-            # once at container start. S01 L04 uses that difference as its closing surprise:
+            # once at container start. The ConfigMap lesson ends on that difference:
             # edit the ConfigMap, re-apply, and the banner does NOT change until the pod restarts.
             - name: BANNER
               valueFrom:

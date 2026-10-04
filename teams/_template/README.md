@@ -6,8 +6,8 @@ convention is unreviewable.
 
 ```
 teams/<team>/
-  appproject.yaml          # sourceRepos, destinations, clusterResourceWhitelist — S07 L02/L03
-  rbac-policy.csv.snippet  # the p/g lines this team contributes to argocd-rbac-cm — S07 L06
+  appproject.yaml          # sourceRepos, destinations, clusterResourceWhitelist
+  rbac-policy.csv.snippet  # the p/g lines this team contributes to argocd-rbac-cm
   apps/<app>/              # one directory per application the team owns
 ```
 

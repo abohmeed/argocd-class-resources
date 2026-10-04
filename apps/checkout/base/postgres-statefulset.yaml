@@ -11,8 +11,8 @@ metadata:
   labels:
     app.kubernetes.io/name: checkout-postgres
   annotations:
-    # S06 L02: the API must not start before the database is ready. Wave -1 runs first, and
-    # wave 0 waits for this to be Synced AND Healthy — not merely created.
+    # The API must not start before the database is ready. Wave -1 runs first, and
+    # wave 0 waits for this to be Synced AND Healthy, not merely created.
     argocd.argoproj.io/sync-wave: "-1"
 spec:
   serviceName: checkout-postgres

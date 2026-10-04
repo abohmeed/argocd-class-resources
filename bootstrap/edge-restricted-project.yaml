@@ -1,13 +1,12 @@
-# An AppProject that carries a narrower sync window (the shape S07 L04's smoke test mirrors).
+# An AppProject that carries a narrower sync window.
 #
 # This file exists because of where Argo CD actually reads a sync window from. `syncWindows` is
 # an AppProject field (`kubectl explain appproject.spec.syncWindows` -> `<[]Object>`); there is
 # no equivalent on an Application. An Application inherits a window by BELONGING to a project
-# that has one. (S08 L12 no longer routes into this project: Argo CD 3.5 does not support
-# spec.project in an ApplicationSet templatePatch, so that lesson's exception changed.)
+# that has one.
 #
 # Worth knowing why that matters: an Application's `spec.syncPolicy.syncOptions` is a plain
-# []string, so Argo CD accepts anything written there. Verified on a live cluster — an
+# []string, so Argo CD accepts anything written there. Verified on a live cluster: an
 # Application carrying `ThisIsCompleteNonsense=yes` was admitted without a murmur. A bogus
 # sync-window entry would therefore render perfectly in `kubectl get application -o yaml` and
 # have no effect whatsoever.
@@ -45,6 +44,6 @@ spec:
       duration: 2h
       applications:
         - '*-storefront'
-      # manualSync lets a human still sync deliberately during a deny window — the escape hatch
+      # manualSync lets a human still sync deliberately during a deny window, the escape hatch
       # that stops a restrictive window from blocking an incident fix.
       manualSync: true

@@ -1,4 +1,4 @@
-# S02 L09: Argo CD under its own management.
+# Argo CD under its own management.
 #
 # The control plane stops being an exception to the system it enforces on everyone else.
 # Keep a manual break-glass path: if this Application ever breaks Argo CD's ability to fix itself,
@@ -13,7 +13,7 @@ spec:
   source:
     repoURL: https://github.com/abohmeed/argocd-class-resources.git
     targetRevision: main
-    # `bootstrap`, matching what S02 L09 says aloud. The student commits Argo CD's
+    # `bootstrap`, matching the lesson. You commit Argo CD's
     # own pinned install manifest into this directory during that lesson; the
     # Application then reconciles the control plane from it.
     path: bootstrap

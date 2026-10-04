@@ -4,7 +4,7 @@ metadata:
   name: TEMPLATE
   namespace: argocd
 spec:
-  description: "Template — copy this directory, do not edit it in place."
+  description: "Template: copy this directory, do not edit it in place."
   sourceRepos:
     - https://github.com/abohmeed/argocd-class-resources.git
   destinations:

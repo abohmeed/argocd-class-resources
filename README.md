@@ -1,15 +1,15 @@
-# argocd-class-resources — companion repository
+# argocd-class-resources: companion repository
 
 Reference manifests for **ArgoCD 3 in Production: GitOps at Scale on Kubernetes**.
 
 Every manifest here is exercised end to end, on a cluster built from nothing, at least once every
-24 hours. If something in this repo does not work, CI failed before you did — open an issue and it
+24 hours. If something in this repo does not work, CI failed before you did. Open an issue and it
 will be a bug in the repo, not in your setup.
 
 > ### Looking for `Section 02` … `Section 05`?
 >
 > They are still here, untouched, and they still work. Those directories are the resources for
-> the **currently published** version of the course — if that is the one you are watching, they
+> the **currently published** version of the course. If that is the one you are watching, they
 > are what you want, and nothing below affects them.
 >
 > The directories listed under **Layout** are the companion repository for the **rebuilt** course.
@@ -20,7 +20,7 @@ will be a bug in the repo, not in your setup.
 
 - A machine that can run **k3s** (Linux, or macOS with Multipass)
 - `kubectl`, `git`, and `helm` 4.x
-- Nothing else. Every other tool is installed by a lesson, on camera, pinned to a version.
+- Nothing else. Every other tool is installed by a lesson, pinned to a version.
 
 ## Quick start
 
@@ -38,8 +38,8 @@ export KUBECONFIG=~/.kube/config
 kubectl get nodes
 ```
 
-Then follow the course from Section 1. **The lessons build these files from empty** — this repo is
-the reference you compare against, and the safety net if a take moves faster than you do.
+Then follow the course from Section 1. **The lessons build these files from empty**. This repo is
+the reference you compare against, and the safety net if the video moves faster than you do.
 
 ## Layout
 
@@ -50,25 +50,24 @@ the reference you compare against, and the safety net if a take moves faster tha
 | `bootstrap/` | The self-management Application, and the app-of-apps root. | S02, S03 |
 | `applicationsets/` | Fleet generation. | S08 |
 | `teams/_template/` | The canonical shape every tenant directory must match. **CI enforces it.** | S07 |
-| `test/` | The smoke suite. One script per lesson, generated from that lesson's runbook. | — |
+| `test/` | The smoke suite. One script per lesson that checks the claim the lesson makes. | Every section |
 
 ## The test suite, and what green actually means
 
-There is one script per demo lesson under `test/smoke/`, named for its lesson — `s04_l01.sh`.
+There is one script per demo lesson under `test/smoke/`, named for its lesson, for example `s04_l01.sh`.
 Each one defends that lesson's **claim**, not its commands: `s02_l04.sh` asserts the banner does
 *not* change after a ConfigMap edit, because that surprise is the lesson, and it goes red if Argo
 CD ever changes so the surprise stops happening. A script that merely re-ran the lesson's commands
 would pass in exactly the case you most need to catch.
 
-A script is named for its lesson's current position in the course (section and lesson number), and
-its second line names the lesson's key, for example `# ACD-82`, so a renumber can never silently
-move a lesson out from under its test. A script for a lesson cut from the course moves to
-`test/smoke/retired/`, where the runner does not pick it up.
+A script is named for its lesson's current position in the course (section and lesson number). A
+script for a lesson cut from the course moves to `test/smoke/retired/`, where the runner does not
+pick it up.
 
 Each script declares a tier, and the runner reports a census rather than a verdict:
 
 ```bash
-./test/smoke/run_all.sh repo      # needs only a checkout — runs on every PR
+./test/smoke/run_all.sh repo      # needs only a checkout; runs on every PR
 ./test/smoke/run_all.sh cluster   # needs k3s + Argo CD: nightly, and on demand
 ```
 
@@ -78,7 +77,7 @@ Each script declares a tier, and the runner reports a census rather than a verdi
 | `cluster` | k3s + Argo CD v3.5.3, the course pin | nightly, and on demand (`workflow_dispatch`) |
 | `external` | a browser, a second repository, a registry, several VMs, or something the CI runner cannot provide | **never in CI** |
 
-That last row is the one that matters. A handful of lessons genuinely cannot run in CI — they sign
+That last row is the one that matters. A handful of lessons genuinely cannot run in CI: they sign
 in through an identity provider, open a pull request, push to a registry, or build four Multipass
 VMs. Those scripts assert whatever *is* checkable from the repo and then **declare themselves**:
 they exit 78, print what they need and why, and the runner counts them in their own column. They

@@ -5,7 +5,7 @@ metadata:
   namespace: argocd
 spec:
   # Children are scoped to a project deliberately. An unscoped child inherits `default`,
-  # which S07 L01 shows is unrestricted — that is the accident this line prevents.
+  # which is unrestricted. That is the accident this line prevents.
   project: default
   source:
     repoURL: https://github.com/abohmeed/argocd-class-resources.git
@@ -16,9 +16,9 @@ spec:
     namespace: storefront-dev
   syncPolicy:
     automated:
-      # S03 L06: automated ALONE does not revert a manual kubectl edit. selfHeal does.
+      # automated ALONE does not revert a manual kubectl edit. selfHeal does.
       selfHeal: true
-      # S03 L06: without prune, a resource deleted from Git survives in the cluster.
+      # Without prune, a resource deleted from Git survives in the cluster.
       prune: true
     syncOptions:
       - CreateNamespace=true
