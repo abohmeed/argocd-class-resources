@@ -7,7 +7,7 @@ resources:
 # never a branch merge.
 images:
   - name: hashicorp/http-echo
-    newTag: "1.0"
+    newTag: "1.0-typo"
 replicas:
   - name: storefront
     count: 1
