@@ -17,6 +17,13 @@ spec:
   goTemplate: true
   goTemplateOptions:
     - missingkey=error
+  # The checkout team subscribes its generated Applications to notifications by annotating them
+  # with kubectl. The controller keeps Argo CD notification annotations by default; listing the two
+  # here makes that explicit, so a regenerated Application keeps its subscriptions.
+  preservedFields:
+    annotations:
+      - notifications.argoproj.io/subscribe.on-sync-succeeded.slack
+      - notifications.argoproj.io/subscribe.on-health-degraded.slack
   generators:
     - matrix:
         generators:
