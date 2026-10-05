@@ -3,6 +3,10 @@ kind: Application
 metadata:
   name: payments-dev
   namespace: argocd
+  # Deleting this Application (for example, when its file is removed and root prunes it) also
+  # deletes the workload it deployed. Without the finalizer, the workload would be left running.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   # Children are scoped to a project deliberately. An unscoped child inherits `default`,
   # which is unrestricted. That is the accident this line prevents.
