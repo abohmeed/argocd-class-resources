@@ -7,3 +7,4 @@ resources:
   - configmap.yaml
   - service.yaml
   - sealedsecret.yaml
+  - backfill-job.yaml
