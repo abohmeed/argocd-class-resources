@@ -14,3 +14,9 @@ configMapGenerator:
     behavior: merge
     literals:
       - "banner=checkout v1: staging"
+# The staging copy of the credential. See sealedsecret.yaml in this folder.
+patches:
+  - path: sealedsecret.yaml
+    target:
+      kind: SealedSecret
+      name: checkout-db
