@@ -6,7 +6,7 @@ resources:
   - deployment.yaml
   - configmap.yaml
   - service.yaml
-  - sealedsecret.yaml
+  # - sealedsecret.yaml   # ESO owns checkout-db for this lesson; restored later in the section
   - migrate-job.yaml
   - migrate2-job.yaml
   - clusterrole.yaml
