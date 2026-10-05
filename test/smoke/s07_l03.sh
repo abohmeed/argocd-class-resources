@@ -12,10 +12,11 @@
 # This script isolates them: a ClusterRole synced alone proves the whitelist gate, a ResourceQuota
 # synced alone (before and after the blacklist exists) proves the blacklist gate.
 #
-# Neither `apps/checkout/base` nor any other committed path in this repo ships a ClusterRole or a
-# ResourceQuota yet: this lesson adds them, live. This script cannot add
-# committed manifests (out of its writable scope) or point at content that doesn't exist, so it
-# builds the two throwaway objects locally and pushes them straight to the Argo CD controller with
+# This lesson adds a ClusterRole to checkout's base live (apps/checkout/base/clusterrole.yaml,
+# checkout-node-reader). It is present at the end of this lesson and removed from the base after
+# it, so this script never depends on whether that file is committed at the moment it runs. No
+# committed path ships a ResourceQuota either. This script cannot add committed manifests (out of
+# its writable scope), so it builds the two throwaway objects locally and pushes them straight to the Argo CD controller with
 # `argocd app sync --local`, the CLI's own supported mechanism for testing against manifests that
 # are not (yet) committed anywhere. This exercises the exact same project-admission code path a
 # git-backed sync would. UNVERIFIED AGAINST A LIVE CLUSTER: run it once for real before trusting

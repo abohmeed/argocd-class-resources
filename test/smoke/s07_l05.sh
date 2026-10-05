@@ -2,9 +2,10 @@
 # lesson: s07_l05 Argo CD project roles and tokens: scoped CI credentials instead of cluster-admin
 # Project roles and tokens: automation that isn't cluster-admin.
 #
-# The claim: a project role token granted exactly one action on one project (`sync` on `checkout`)
-# works for that one thing, in that one project, and is denied everywhere else: including a
-# different project's app, which the token's role never named at all.
+# The claim: a project role token granted two policies on one project (`get`, then `sync`, on
+# `checkout`) syncs apps in that one project, and is denied everywhere else: including a
+# different project's app, which the token's role never named at all. On Argo CD 3.5.3 a role holding
+# only `sync` is refused the sync too: the token also needs `get` to see the Application.
 #
 # This lesson tests Argo CD's OWN internal RBAC (policy evaluated by argocd-server against a
 # token), which only fires through the real API: a kubectl-only test would bypass it entirely.
@@ -13,7 +14,7 @@
 # straight to the argocd-server Service instead. Same RBAC evaluation, no gateway dependency.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S07-L05 "a project role token scoped to one action on one project works there and is denied everywhere else, including a different project's app"
+lesson S07-L05 "a project role token scoped to get and sync on one project works there and is denied everywhere else, including a different project's app"
 tier cluster
 
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
@@ -85,23 +86,24 @@ ADMIN_PW="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath
 argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 _pass "logged in as admin over the port-forward"
 
-step "create an empty role, grant it exactly one action, and issue a token"
+step "create an empty role, grant it get and then sync, and issue a token"
 argocd proj role create "${PROJ}" "${ROLE}" --grpc-web >/dev/null
+argocd proj role add-policy "${PROJ}" "${ROLE}" -a get -o '*' --grpc-web >/dev/null
 argocd proj role add-policy "${PROJ}" "${ROLE}" -a sync -o '*' --grpc-web >/dev/null
 TOKEN="$(argocd proj role create-token "${PROJ}" "${ROLE}" --grpc-web 2>/dev/null | tail -1 | tr -d '[:space:]')"
 [ -n "${TOKEN}" ] || _fail "no token came back from 'argocd proj role create-token'"
-_pass "role ${ROLE} created with one policy (sync, *) and a token issued"
+_pass "role ${ROLE} created with two policies (get, *) and (sync, *), and a token issued"
 
 step "the token syncs the in-scope app"
 if argocd app sync "${APP_IN}" --grpc-web --auth-token "${TOKEN}" >/dev/null 2>&1; then
-  _pass "token synced ${APP_IN}, inside its own project: exactly what the one policy line grants"
+  _pass "token synced ${APP_IN}, inside its own project: exactly what its two policy lines grant"
 else
-  _fail "the token could not sync ${APP_IN}, which its own role's sync/* policy should cover"
+  _fail "the token could not sync ${APP_IN}, which its own role's get/* and sync/* policies should cover"
 fi
 
 step "the SAME token is denied on an app in a different project"
 if argocd app sync "${APP_OUT}" --grpc-web --auth-token "${TOKEN}" >/dev/null 2>&1; then
-  _fail "the ${PROJ}-scoped token synced ${APP_OUT}, which belongs to a different project: the role has no policy line naming it"
+  _fail "the ${PROJ}-scoped token synced ${APP_OUT}, which belongs to a different project: the role has no policy line naming that project"
 else
   _pass "token denied on ${APP_OUT}: the role's reach stops at its own project, exactly as the lesson claims"
 fi
