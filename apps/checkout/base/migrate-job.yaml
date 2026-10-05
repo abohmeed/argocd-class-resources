@@ -3,6 +3,9 @@ kind: ConfigMap
 metadata:
   name: checkout-migrate-sql
   namespace: checkout
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-1"
 data:
   001_orders.sql: |
     CREATE TABLE IF NOT EXISTS orders (id serial primary key, created_at timestamptz default now());
