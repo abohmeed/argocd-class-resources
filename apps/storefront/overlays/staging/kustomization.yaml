@@ -3,9 +3,11 @@ kind: Kustomization
 namespace: storefront-staging
 resources:
   - ../../base
+# The image tag is pinned per environment. Promotion is a one-line change to this block,
+# never a branch merge.
 images:
   - name: hashicorp/http-echo
-    newTag: "1.0.0"
+    newTag: "1.0"
 replicas:
   - name: storefront
     count: 2
