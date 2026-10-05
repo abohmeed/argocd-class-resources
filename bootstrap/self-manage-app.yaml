@@ -10,7 +10,7 @@ spec:
     targetRevision: main
     path: bootstrap
     directory:
-      include: "{install.yaml,self-manage-app.yaml}"
+      include: "{install.yaml,self-manage-app.yaml,argocd-repo-creds-sealed.yaml}"
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
