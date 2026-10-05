@@ -20,7 +20,7 @@ spec:
             - -d
             - checkout
             - -c
-            - "SELECT 1;"
+            - "SELECT 2;"
           env:
             - name: PGPASSWORD
               valueFrom:
