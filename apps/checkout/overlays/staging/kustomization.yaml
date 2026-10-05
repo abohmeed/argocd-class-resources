@@ -14,9 +14,23 @@ configMapGenerator:
     behavior: merge
     literals:
       - "banner=checkout v1: staging"
-# The staging copy of the credential. See sealedsecret.yaml in this folder.
 patches:
+  # checkout-staging's own copy of the database credential. Until it is resealed for
+  # checkout-staging, sealedsecret.yaml holds no ciphertext and this patch changes nothing, so the
+  # overlay ships the base's SealedSecret, sealed under strict scope for the bare checkout namespace.
+  # To fix it, reseal the credential for checkout-staging with kubeseal, write the output over
+  # sealedsecret.yaml, and commit it. The target matches by kind and name, so the namespace
+  # kubeseal writes into the output does not stop the patch from applying.
   - path: sealedsecret.yaml
     target:
       kind: SealedSecret
       name: checkout-db
+  # A rollout that cannot finish (for example, a missing credential) is reported as failed after
+  # 20 seconds instead of the default 10 minutes, so the Application turns Degraded quickly.
+  - target:
+      kind: Deployment
+      name: checkout
+    patch: |-
+      - op: add
+        path: /spec/progressDeadlineSeconds
+        value: 20
