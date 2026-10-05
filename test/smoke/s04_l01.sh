@@ -14,13 +14,28 @@ tier repo
 step "the directory the lesson syncs actually exists"
 assert_exists_dir "apps/storefront/manifests"
 
-step "and it is a PLAIN directory: no build marker of any kind"
-for marker in kustomization.yaml kustomization.yml Chart.yaml values.yaml .argocd-source.yaml; do
+step "and it is a PLAIN directory: the manifests themselves, with no chart or plugin marker"
+for marker in kustomization.yml Chart.yaml values.yaml .argocd-source.yaml; do
   if [ -e "${REPO_ROOT}/apps/storefront/manifests/${marker}" ]; then
     _fail "apps/storefront/manifests/${marker} exists: Argo CD would detect a build tool and the lesson's premise collapses"
   fi
 done
-_pass "no kustomization, chart or plugin marker present"
+_pass "no chart or plugin marker present"
+
+step "the one marker a later lesson adds changes the source type, not the manifests"
+# The next lesson commits apps/storefront/manifests/kustomization.yaml on purpose, to flip
+# detection from Directory to Kustomize, so a fork that has followed the course past this lesson
+# carries that file. It is allowed only in that exact shape: it lists the two manifests under
+# resources: and does nothing else, so what gets applied is still these files as written.
+KZ="${REPO_ROOT}/apps/storefront/manifests/kustomization.yaml"
+if [ -e "${KZ}" ]; then
+  extra="$(grep -vE '^(apiVersion: kustomize\.config\.k8s\.io/v1beta1|kind: Kustomization|resources:|  - (deployment|service)\.yaml)[[:space:]]*$' "${KZ}" | grep -vE '^[[:space:]]*(#.*)?$' || true)"
+  [ -z "${extra}" ] \
+    || _fail "apps/storefront/manifests/kustomization.yaml does more than list the two manifests:\n${extra}"
+  _pass "kustomization.yaml (added by the next lesson) only lists deployment.yaml and service.yaml"
+else
+  _pass "no kustomization.yaml yet: the directory is plain, as this lesson starts"
+fi
 
 step "the manifests are what the lesson shows: a Deployment and a Service, nothing else"
 assert_yaml_wellformed "apps/storefront/manifests/deployment.yaml"
