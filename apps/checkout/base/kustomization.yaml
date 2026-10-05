@@ -10,4 +10,3 @@ resources:
   - migrate-job.yaml
   - migrate2-job.yaml
   - clusterrole.yaml
-  - resourcequota.yaml
