@@ -113,15 +113,41 @@ assert_images_pinned() {
 
 # assert_no_plaintext_secrets: a Secret with literal data committed to git is the exact mistake
 # the secrets section opens on. It must never be in the repo outside the one lesson that demonstrates it.
+#
+# One kind of Secret file is allowed: a SOPS-encrypted one (the SOPS lesson commits one on purpose).
+# A Secret file passes only when it has a top-level sops: block AND every value under its top-level
+# data: and stringData: blocks is an ENC[...] string. A sops: block over plaintext values, or a
+# value written as a block scalar, still fails.
+_secret_file_is_sops_encrypted() {
+  local file="$1"
+  grep -q '^sops:' "${file}" || return 1
+  awk '
+    /^(data|stringData):[[:space:]]*$/ { inblock = 1; next }
+    /^[^[:space:]#]/                   { inblock = 0 }
+    inblock && /^[[:space:]]+[^[:space:]#][^:]*:/ {
+      value = $0
+      sub(/^[[:space:]]+[^:]+:[[:space:]]*/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      if (value !~ /^ENC\[.*\]$/) bad = 1
+      seen = 1
+    }
+    END { exit (bad || !seen) ? 1 : 0 }
+  ' "${file}"
+}
+
 assert_no_plaintext_secrets() {
-  local hits
+  local candidates file hits=""
   _require_dirs "${REPO_ROOT}/apps" "${REPO_ROOT}/teams"
-  hits="$(grep -rIl --exclude-dir=.git --include='*.yaml' -e '^kind: Secret$' \
+  candidates="$(grep -rIl --exclude-dir=.git --include='*.yaml' -e '^kind: Secret$' \
     "${REPO_ROOT}/apps" "${REPO_ROOT}/teams" 2>/dev/null || true)"
+  while IFS= read -r file; do
+    [ -n "${file}" ] || continue
+    _secret_file_is_sops_encrypted "${file}" || hits="${hits}\n${file#"${REPO_ROOT}"/}"
+  done <<< "${candidates}"
   if [ -z "${hits}" ]; then
-    _pass "no plaintext Secret manifests committed"
+    _pass "no plaintext Secret manifests committed (SOPS-encrypted Secret files allowed)"
   else
-    _fail "plaintext Secret committed: use a SealedSecret: ${hits}"
+    _fail "plaintext Secret committed: use a SealedSecret, or encrypt every data/stringData value with SOPS:${hits}"
   fi
 }
 
