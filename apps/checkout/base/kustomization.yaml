@@ -9,3 +9,4 @@ resources:
   - sealedsecret.yaml
   - migrate-job.yaml
   - migrate2-job.yaml
+  - clusterrole.yaml
