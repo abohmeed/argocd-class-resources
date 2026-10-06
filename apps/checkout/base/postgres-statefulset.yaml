@@ -10,10 +10,7 @@ metadata:
   name: checkout-postgres
   labels:
     app.kubernetes.io/name: checkout-postgres
-  annotations:
-    # The API must not start before the database is ready. Wave -1 runs first, and
-    # wave 0 waits for this to be Synced AND Healthy, not merely created.
-    argocd.argoproj.io/sync-wave: "-1"
+  # (sync-wave annotation removed for this demo)
 spec:
   serviceName: checkout-postgres
   replicas: 1
