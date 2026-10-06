@@ -24,7 +24,7 @@ spec:
             # A plain literal, typed straight into this file. No ConfigMap, no Kustomize
             # substitution, no plugin: Argo CD applies this value exactly as written.
             - name: BANNER
-              value: "storefront v1"
+              value: "storefront v1: hotfix"
           ports:
             - name: http
               containerPort: 5678
