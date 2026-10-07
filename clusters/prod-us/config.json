@@ -1,6 +1,6 @@
 {
   "name": "prod-us",
-  "server": "https://10.128.33.185:6443",
+  "server": "https://10.128.33.195:6443",
   "tier": "prod",
   "replicas": 3
 }
