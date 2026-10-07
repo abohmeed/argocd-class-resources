@@ -4,4 +4,3 @@ resources:
   - deployment.yaml
   - configmap.yaml
   - service.yaml
-  - helmchart.yaml
