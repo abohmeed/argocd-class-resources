@@ -5,7 +5,7 @@ resources:
   - ../../base
 images:
   - name: hashicorp/http-echo
-    newTag: "1.0"
+    newTag: "1.0.0"
 replicas:
   - name: storefront
     count: 3
