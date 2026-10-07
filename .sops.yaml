@@ -1,4 +1,0 @@
-creation_rules:
-  - path_regex: apps/checkout/sops-demo/.*\.enc\.yaml$
-    encrypted_regex: '^(data|stringData)$'
-    age: age1eg5d2nza98zcgeq8d9jj28ela3zxpyttwn4srh23jd5du7krepjsg7qas5
