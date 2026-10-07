@@ -3,12 +3,6 @@ kind: Kustomization
 namespace: storefront-canary
 resources:
   - ../../base
-  - preview-service.yaml
-patches:
-  - target:
-      kind: Rollout
-      name: storefront
-    path: blue-green-strategy-patch.yaml
 images:
   - name: hashicorp/http-echo
     newTag: "1.0.0"
