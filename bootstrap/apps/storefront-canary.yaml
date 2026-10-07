@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: storefront-canary
+  namespace: argocd
+  # Deleting this Application (for example, when its file is removed and root prunes it) also
+  # deletes the workload it deployed. Without the finalizer, the workload would be left running.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # Children are scoped to a project deliberately. An unscoped child inherits `default`,
+  # which is unrestricted. That is the accident this line prevents.
+  project: default
+  source:
+    repoURL: https://github.com/abohmeed/argocd-class-resources.git
+    targetRevision: main
+    path: apps/storefront/overlays/canary
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: storefront-canary
+  syncPolicy:
+    automated:
+      # automated ALONE does not revert a manual kubectl edit. selfHeal does.
+      selfHeal: true
+      # Without prune, a resource deleted from Git survives in the cluster.
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
