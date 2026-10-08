@@ -1,6 +1,0 @@
-{
-  "name": "prod-eu",
-  "server": "PROD_EU_SERVER_URL",
-  "tier": "prod",
-  "replias": 5
-}
