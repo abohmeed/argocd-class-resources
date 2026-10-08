@@ -5,6 +5,6 @@ metadata:
 spec:
   repo: https://stefanprodan.github.io/podinfo
   chart: podinfo
-  version: 6.99.0
+  version: 6.9.4
   targetNamespace: storefront-dev
   backOffLimit: 1
