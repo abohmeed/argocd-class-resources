@@ -7,7 +7,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/abohmeed/argocd-class-resources.git
-    targetRevision: main
+    targetRevision: baseline/before-rollouts
     path: bootstrap
     directory:
       include: "{install.yaml,self-manage-app.yaml,argocd-repo-creds-sealed.yaml}"
