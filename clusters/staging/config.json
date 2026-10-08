@@ -1,6 +1,6 @@
 {
   "name": "staging",
-  "server": "https://10.128.33.63:6443",
+  "server": "https://10.128.33.178:6443",
   "tier": "staging",
   "replicas": 2
 }
