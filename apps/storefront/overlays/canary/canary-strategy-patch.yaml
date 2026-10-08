@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: storefront
+spec:
+  template:
+    metadata:
+      annotations:
+        rollouts.northwind.io/banner-revision: "v3"
+  strategy:
+    canary:
+      stableService: storefront
+      canaryService: storefront-preview
+      trafficRouting:
+        plugins:
+          argoproj-labs/gatewayAPI:
+            httpRoute: storefront
+            namespace: storefront-canary
+      steps:
+        - setWeight: 20
+        - pause: {}
+        - setWeight: 50
+        - pause: {duration: 30s}
+        - setWeight: 100

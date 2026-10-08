@@ -4,11 +4,12 @@ namespace: storefront-canary
 resources:
   - ../../base
   - preview-service.yaml
+  - httproute.yaml
 patches:
   - target:
       kind: Rollout
       name: storefront
-    path: blue-green-strategy-patch.yaml
+    path: canary-strategy-patch.yaml
 images:
   - name: hashicorp/http-echo
     newTag: "1.0.0"
@@ -16,4 +17,4 @@ configMapGenerator:
   - name: storefront-banner
     behavior: merge
     literals:
-      - "banner=storefront v2: canary"
+      - "banner=storefront v3: canary"

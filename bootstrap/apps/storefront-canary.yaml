@@ -26,3 +26,10 @@ spec:
       prune: true
     syncOptions:
       - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: storefront
+      jqPathExpressions:
+        - .spec.rules[].backendRefs[].weight
