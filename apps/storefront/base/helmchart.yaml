@@ -1,0 +1,10 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: podinfo
+spec:
+  repo: https://stefanprodan.github.io/podinfo
+  chart: podinfo
+  version: 6.99.0
+  targetNamespace: storefront-dev
+  backOffLimit: 1
