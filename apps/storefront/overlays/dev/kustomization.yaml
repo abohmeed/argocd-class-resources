@@ -8,9 +8,6 @@ resources:
 images:
   - name: hashicorp/http-echo
     newTag: "1.0"
-replicas:
-  - name: storefront
-    count: 1
 configMapGenerator:
   - name: storefront-banner
     behavior: merge
