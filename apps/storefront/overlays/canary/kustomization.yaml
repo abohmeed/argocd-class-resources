@@ -17,4 +17,4 @@ configMapGenerator:
   - name: storefront-banner
     behavior: merge
     literals:
-      - "banner=storefront v3: canary"
+      - "banner=storefront v2: canary"

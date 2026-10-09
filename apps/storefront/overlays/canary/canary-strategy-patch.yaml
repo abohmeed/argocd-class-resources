@@ -6,7 +6,7 @@ spec:
   template:
     metadata:
       annotations:
-        rollouts.northwind.io/banner-revision: "v3"
+        rollouts.northwind.io/banner-revision: "v2-attempt-2"
   strategy:
     canary:
       stableService: storefront
