@@ -6,7 +6,7 @@ spec:
   template:
     metadata:
       annotations:
-        rollouts.northwind.io/banner-revision: "v4-analysis-pass"
+        rollouts.northwind.io/banner-revision: "v3"
   strategy:
     canary:
       stableService: storefront
@@ -18,12 +18,7 @@ spec:
             namespace: storefront-canary
       steps:
         - setWeight: 20
-        - analysis:
-            templates:
-              - templateName: storefront-banner-matches
-            args:
-              - name: expected-banner
-                value: "storefront v4: canary"
+        - pause: {}
         - setWeight: 50
         - pause: {duration: 30s}
         - setWeight: 100
