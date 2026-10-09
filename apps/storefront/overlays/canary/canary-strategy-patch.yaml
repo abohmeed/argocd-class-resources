@@ -6,7 +6,7 @@ spec:
   template:
     metadata:
       annotations:
-        rollouts.northwind.io/banner-revision: "v4-analysis-fail"
+        rollouts.northwind.io/banner-revision: "v4-analysis-clean"
   strategy:
     canary:
       stableService: storefront
