@@ -7,17 +7,10 @@ resources:
 # never a branch merge.
 images:
   - name: hashicorp/http-echo
-    newName: ghcr.io/abohmeed/argocd-class-app
-    newTag: "6c12f4014ba43838e54e02e6d2dbdc653bd96909"
-# replicas comes from the base (1): kustomize's replicas field refuses a Rollout, which the base is from S10 L02 on.
-# The app image starts its own server on port 5678, so http-echo's flags are dropped.
-patches:
-  - target:
-      kind: Deployment|Rollout
-      name: storefront
-    patch: |-
-      - op: remove
-        path: /spec/template/spec/containers/0/args
+    newTag: "1.0"
+replicas:
+  - name: storefront
+    count: 1
 configMapGenerator:
   - name: storefront-banner
     behavior: merge

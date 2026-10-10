@@ -1,5 +1,5 @@
-apiVersion: argoproj.io/v1alpha1
-kind: Rollout
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: storefront
   annotations:
@@ -46,5 +46,3 @@ spec:
               memory: 16Mi
             limits:
               memory: 32Mi
-  strategy:
-    canary: {}

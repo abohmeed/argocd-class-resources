@@ -3,18 +3,14 @@ kind: Kustomization
 namespace: storefront-canary
 resources:
   - ../../base
-  - preview-service.yaml
-  - httproute.yaml
-patches:
-  - target:
-      kind: Rollout
-      name: storefront
-    path: canary-strategy-patch.yaml
 images:
   - name: hashicorp/http-echo
     newTag: "1.0.0"
+replicas:
+  - name: storefront
+    count: 2
 configMapGenerator:
   - name: storefront-banner
     behavior: merge
     literals:
-      - "banner=storefront v4: canary"
+      - "banner=storefront v1: canary"
