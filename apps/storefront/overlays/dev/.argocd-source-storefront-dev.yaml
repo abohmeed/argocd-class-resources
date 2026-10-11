@@ -1,3 +1,0 @@
-kustomize:
-  images:
-  - ghcr.io/abohmeed/argocd-class-app:23feaee27754115e0d6a0946f93685e7e0a0b1fb
