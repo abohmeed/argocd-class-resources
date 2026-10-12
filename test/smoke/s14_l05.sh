@@ -69,7 +69,7 @@ spec:
         - setWeight: 25
         - analysis:
             templates:
-              - templateName: s14l05-check-typoed
+              - templateName: s14l05-check-typo
 EOF
 
 sleep 40
@@ -82,11 +82,12 @@ else
 fi
 
 step "fixing the reference and giving it a real, passing check lets the canary complete on its own"
+# The lesson's fix is the corrected reference (Rollout re-applied) plus the template under the corrected name.
 kubectl apply -n "${NS}" -f - >/dev/null <<'EOF'
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:
-  name: s14l05-check-typoed
+  name: s14l05-check
 spec:
   metrics:
     - name: banner-matches
@@ -109,6 +110,10 @@ EOF
 
 # With the reference fixed, the analysis runs and reaches a verdict. The probe's check may pass or fail (the lesson's
 # own 1.5.0 build is built to fail it); what the fix must do is let the AnalysisRun run to a result.
+# Re-apply the corrected reference to the Rollout itself (the step that names the template is index 1).
+kubectl -n "${NS}" patch rollout s14l05-probe --type=json \
+  -p='[{"op":"replace","path":"/spec/strategy/canary/steps/1/analysis/templates/0/templateName","value":"s14l05-check"}]' >/dev/null
+
 ok=no
 for _ in $(seq 1 12); do
   sleep 10
