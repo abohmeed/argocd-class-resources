@@ -82,8 +82,9 @@ spec:
           configMap:
             name: probe-payload
 EOF
-argocd app sync "${APP}" --local "${WORKDIR}" >/dev/null 2>&1 || true
-sleep 20
+# With no ConfigMap yet the hook's pod cannot start, so the operation never finishes. Give it 30 seconds to
+# show that, then terminate it (argocd_sync_local does this), and look at the Job.
+argocd_sync_local "${APP}" "${WORKDIR}" 30 || true
 if kubectl wait --for=condition=complete job/probe-migrate -n "${NS}" --timeout=1s >/dev/null 2>&1; then
   _fail "the PreSync Job completed even with a non-hook ConfigMap: the ordering break this lesson demonstrates did not reproduce; a change upstream may have altered phase ordering"
 else
@@ -92,6 +93,7 @@ fi
 
 step "fix it: the ConfigMap becomes a PreSync hook at wave -1, one wave ahead of the Job"
 kubectl delete job probe-migrate -n "${NS}" --ignore-not-found >/dev/null 2>&1
+argocd app terminate-op "${APP}" >/dev/null 2>&1 || true
 cat > "${WORKDIR}/configmap.yaml" <<EOF
 apiVersion: v1
 kind: ConfigMap
@@ -104,7 +106,7 @@ metadata:
 data:
   payload.txt: "s06l06-ok"
 EOF
-argocd app sync "${APP}" --local "${WORKDIR}" >/dev/null 2>&1 || true
+argocd_sync_local "${APP}" "${WORKDIR}" 120 || true
 kubectl wait --for=condition=complete job/probe-migrate -n "${NS}" --timeout=60s >/dev/null 2>&1 \
   || _fail "the PreSync Job still did not complete even after the ConfigMap became a wave -1 PreSync hook: the fix the lesson teaches does not reproduce"
 output="$(kubectl logs job/probe-migrate -n "${NS}" 2>/dev/null || true)"

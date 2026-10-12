@@ -99,7 +99,7 @@ for opt in ServerSideApply=true CreateNamespace=true Replace=true SkipDryRunOnMi
 done
 
 step "a full sync appears in history, and the PreSync hook fires"
-argocd app sync "${APP}" --local "${WORKDIR}" >/dev/null 2>&1 || true
+argocd_sync_local "${APP}" "${WORKDIR}" 120 || true
 kubectl wait --for=condition=complete job/probe-presync -n "${NS}" --timeout=60s >/dev/null 2>&1 \
   || _fail "PreSync hook never completed on the full sync: cannot test what selective sync skips relative to it"
 hist_before="$(argocd app history "${APP}" 2>/dev/null | grep -c . || true)"
@@ -108,7 +108,7 @@ _pass "full sync completed, history has ${hist_before} line(s), hook Job at reso
 
 step "selective sync of just the Deployment: no new history entry, no new hook run"
 sed -i.bak 's/probe-v1/probe-v2/' "${WORKDIR}/deployment.yaml" && rm -f "${WORKDIR}/deployment.yaml.bak"
-argocd app sync "${APP}" --local "${WORKDIR}" --resource apps:Deployment:probe >/dev/null 2>&1 || true
+argocd_sync_local "${APP}" "${WORKDIR}" 120 --resource apps:Deployment:probe || true
 sleep 5
 hist_after="$(argocd app history "${APP}" 2>/dev/null | grep -c . || true)"
 [ "${hist_after}" -eq "${hist_before}" ] \
