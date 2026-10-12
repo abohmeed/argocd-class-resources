@@ -9,18 +9,19 @@
 # not touch it" point would be false. So this drives a real Application through the exact
 # sequence the lesson shows and watches which half happens.
 #
-# This does not disturb the "argocd" namespace or the shared storefront-dev Application other
-# lessons build (a later lesson puts Argo CD under self-management, and the course keeps this
-# Application registered for good). It uses its own throwaway Application/namespace name
-# so it can run in the same CI job as other cluster-tier scripts without colliding, and it tears
-# itself down whether it passes or fails.
+# This does not disturb the "argocd" namespace, nor the shared storefront-dev namespace or the
+# Application other lessons build on it. It probes the BASE (apps/storefront/base) into its own throwaway namespace, the
+# same way the S03 scripts do: the dev overlay pins namespace storefront-dev, which would win over
+# destination.namespace and land the probe on the real storefront-dev. Its Application and
+# namespace have their own names so it can run in the same CI job as other cluster-tier scripts
+# without colliding, and it tears itself down whether it passes or fails.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 lesson S02-L05 "automated (with no selfHeal) detects a manual edit as OutOfSync but does not revert it"
 tier cluster
 
 APP="s02l05-probe"
-NS="storefront-dev"   # the lesson's own namespace: the overlay fixes it to storefront-dev, so the destination must be that
+NS="s02l05-probe"   # the probe's own namespace; storefront-dev is never touched (see the header)
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
 
 cleanup() {
@@ -30,8 +31,8 @@ cleanup() {
 trap cleanup EXIT
 
 step "register a bare 'automated: {}' Application against storefront's dev overlay"
-# The lesson creates the namespace by hand (S02-L05 Do.md) and the Application targets it. The overlay fixes
-# its namespace to storefront-dev, so the destination cannot be a probe namespace of its own.
+# base, NOT overlays/dev: the dev overlay pins namespace storefront-dev in its kustomization.yaml, and
+# that wins over destination.namespace, so an overlay probe would land in the real storefront-dev.
 kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: argoproj.io/v1alpha1
@@ -39,7 +40,7 @@ kind: Application
 metadata: {name: ${APP}, namespace: argocd}
 spec:
   project: default
-  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/storefront/overlays/dev}
+  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/storefront/base}
   destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
   syncPolicy:
     automated: {}
