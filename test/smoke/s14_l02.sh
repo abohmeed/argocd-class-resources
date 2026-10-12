@@ -57,13 +57,16 @@ EOF
 wait_for_sync "${APP}" 120
 
 step "retargeting it OUTSIDE the project's allowed namespace is refused, not silently accepted"
-out="$(kubectl patch application "${APP}" -n argocd --type merge \
-  -p '{"spec":{"destination":{"namespace":"argocd"}}}' 2>&1)" && rc=0 || rc=$?
+# The retarget goes through the Argo CD API (argocd app set), which validates the spec against the project and
+# refuses it (Do.md step 8: InvalidSpecError). A kubectl patch skips that validation, so it is not the test.
+argocd_cli_ready
+out="$(argocd app set "${APP}" --dest-namespace argocd 2>&1)" && rc=0 || rc=$?
+argocd_cli_release
 current_ns="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.spec.destination.namespace}' 2>/dev/null || true)"
-if [ "${rc}" -ne 0 ] || [ "${current_ns}" != "argocd" ]; then
-  _pass "the AppProject fence held: the Application was not retargeted to a namespace outside its allowed pattern"
+if [ "${rc}" -ne 0 ] && [ "${current_ns}" = "${NS}" ]; then
+  _pass "the AppProject fence held: argocd app set refused the retarget (exit ${rc}) and the destination stayed ${NS}"
 else
-  _fail "the retarget to 'argocd' namespace SUCCEEDED against a project scoped to '${NS}' only: the fence this lesson builds did not hold:\n${out}"
+  _fail "the retarget to 'argocd' namespace was not refused (exit ${rc}, destination now '${current_ns}') against a project scoped to '${NS}' only: the fence this lesson builds did not hold:\n${out}"
 fi
 
 smoke_done
