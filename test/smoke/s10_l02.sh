@@ -34,7 +34,7 @@ poll_rollout_healthy() {
 
 step "install Argo Rollouts ${ARGO_ROLLOUTS_VERSION}: a separate project, a separate controller"
 kubectl create namespace argo-rollouts --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl apply -n argo-rollouts -f "https://github.com/argoproj/argo-rollouts/releases/download/${ARGO_ROLLOUTS_VERSION}/install.yaml" >/dev/null
+kubectl apply --server-side -n argo-rollouts -f "https://github.com/argoproj/argo-rollouts/releases/download/${ARGO_ROLLOUTS_VERSION}/install.yaml" >/dev/null
 wait_for_rollout "deployment/argo-rollouts" "argo-rollouts"
 
 step "set up the probe: a plain Deployment on the pinned http-echo image"
