@@ -57,6 +57,9 @@ metadata:
     argocd.argoproj.io/hook: PreSync
 $( [ -n "$2" ] && printf '    argocd.argoproj.io/hook-delete-policy: %s\n' "$2" )
 spec:
+  # A failing hook fails at once. The default backoffLimit (6) retries it with growing delays first,
+  # which keeps the sync Running for about ten minutes before the failure this script checks exists.
+  backoffLimit: 0
   template:
     spec:
       restartPolicy: Never
@@ -74,7 +77,7 @@ argocd app create "${APP}" --repo "${REPO}" --path apps/checkout/base \
 step "no delete policy at all: the default BeforeHookCreation leaves exactly one Job"
 write_manifests "true" ""
 for _ in 1 2 3; do
-  argocd app sync "${APP}" --local "${WORKDIR}" >/dev/null 2>&1 || true
+  argocd_sync_local "${APP}" "${WORKDIR}" 120 || true
   sleep 3
 done
 count="$(kubectl get jobs -n "${NS}" --no-headers 2>/dev/null | wc -l | tr -d ' ')"
@@ -88,7 +91,7 @@ kubectl delete jobs -n "${NS}" --all >/dev/null 2>&1 || true
 step "BeforeHookCreation: never more than one hook Job standing, no matter how many syncs"
 write_manifests "true" "BeforeHookCreation"
 for _ in 1 2 3; do
-  argocd app sync "${APP}" --local "${WORKDIR}" >/dev/null 2>&1 || true
+  argocd_sync_local "${APP}" "${WORKDIR}" 120 || true
   sleep 3
 done
 count="$(kubectl get jobs -n "${NS}" --no-headers 2>/dev/null | wc -l | tr -d ' ')"
@@ -99,7 +102,7 @@ kubectl delete jobs -n "${NS}" --all >/dev/null 2>&1 || true
 
 step "HookSucceeded: a successful hook is swept once it succeeds"
 write_manifests "true" "HookSucceeded"
-argocd app sync "${APP}" --local "${WORKDIR}" >/dev/null 2>&1 || true
+argocd_sync_local "${APP}" "${WORKDIR}" 120 || true
 count=1
 for _ in $(seq 1 15); do
   count="$(kubectl get jobs -n "${NS}" --no-headers 2>/dev/null | wc -l | tr -d ' ')"
@@ -113,7 +116,7 @@ done
 step "HookSucceeded: a FAILED hook is left standing, on purpose"
 kubectl delete jobs -n "${NS}" --all >/dev/null 2>&1 || true
 write_manifests "exit 1" "HookSucceeded"
-argocd app sync "${APP}" --local "${WORKDIR}" >/dev/null 2>&1 || true
+argocd_sync_local "${APP}" "${WORKDIR}" 120 || true
 sleep 10
 failed_count="$(kubectl get jobs -n "${NS}" -o jsonpath='{range .items[?(@.status.failed>=1)]}{.metadata.name}{"\n"}{end}' 2>/dev/null | wc -l | tr -d ' ')"
 [ "${failed_count}" -ge 1 ] \
