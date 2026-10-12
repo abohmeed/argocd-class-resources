@@ -125,7 +125,8 @@ spec:
       steps:
         - setWeight: 20
         - analysis:
-            templateName: probe-banner-matches
+            templates:
+              - templateName: probe-banner-matches
             args:
               - name: expected-banner
                 value: "${expect}"
