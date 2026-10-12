@@ -11,7 +11,7 @@ metadata:
   name: teams-fleet
   namespace: argocd
 spec:
-  # Modern templating, addressed with a dot everywhere: {{ .git.path.basename }}, {{ .cluster.name }}.
+  # Modern templating, addressed with a dot everywhere: {{ .git.path.basename }}, {{ .name }}.
   # The legacy dot-less {{name}} form is a HARD PARSE ERROR on 3.5. It is a trap easy to paste in from
   # an older manifest, and it fails just as loudly here as anywhere else in this course.
   goTemplate: true
@@ -42,7 +42,7 @@ spec:
                   tier: staging
   template:
     metadata:
-      name: 'team-{{ .git.path.basename }}-{{ .cluster.name }}'
+      name: 'team-{{ .git.path.basename }}-{{ .name }}'
       # The ApplicationSet controller adds no label of its own (v3.5.3), so the template sets one:
       # kubectl get applications -n argocd -l appset=teams-fleet lists exactly what this generates.
       labels:
@@ -52,10 +52,10 @@ spec:
       source:
         repoURL: https://github.com/abohmeed/argocd-class-resources.git
         targetRevision: main
-        path: 'apps/{{ .git.path.basename }}/overlays/{{ .cluster.metadata.labels.tier }}'
+        path: 'apps/{{ .git.path.basename }}/overlays/{{ .metadata.labels.tier }}'
       destination:
-        server: '{{ .cluster.server }}'
-        namespace: '{{ .git.path.basename }}-{{ .cluster.metadata.labels.tier }}'
+        server: '{{ .server }}'
+        namespace: '{{ .git.path.basename }}-{{ .metadata.labels.tier }}'
       syncPolicy:
         automated:
           selfHeal: true
