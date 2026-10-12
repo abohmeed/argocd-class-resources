@@ -94,6 +94,9 @@ n="$(deployments_left)"
   || _fail "expected 0 Deployments left after the default cascade, found ${n}: the default deletion policy no longer cascades to live resources"
 
 step "Step 3: rebuild WITH preserveResourcesOnDeletion: true"
+# The ApplicationSet from Step 2 can still be terminating for a while after `kubectl delete` returns; applying the
+# same name into that window is refused ("object is being deleted"). Wait until the name is free.
+for _ in $(seq 1 60); do kubectl get applicationset "${APPSET}" -n argocd >/dev/null 2>&1 || break; sleep 2; done
 base_appset "true" | kubectl apply -f - >/dev/null
 wait_for_sync "payments-dev" 180
 wait_for_sync "search-dev" 180
