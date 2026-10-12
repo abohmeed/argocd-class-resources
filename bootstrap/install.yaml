@@ -32966,6 +32966,18 @@ spec:
                   app.kubernetes.io/part-of: argocd
               topologyKey: kubernetes.io/hostname
             weight: 5
+      initContainers:
+        - name: rollout-extension
+          image: quay.io/argoprojlabs/argocd-extension-installer:v0.0.9
+          env:
+            - name: EXTENSION_URL
+              value: https://github.com/argoproj-labs/rollout-extension/releases/download/v0.4.0/extension.tar
+          volumeMounts:
+            - name: extensions
+              mountPath: /tmp/extensions/
+          securityContext:
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
       containers:
       - args:
         - /usr/local/bin/argocd-server
@@ -33380,10 +33392,14 @@ spec:
           name: tmp
         - mountPath: /home/argocd/params
           name: argocd-cmd-params-cm
+        - name: extensions
+          mountPath: /tmp/extensions/
       nodeSelector:
         kubernetes.io/os: linux
       serviceAccountName: argocd-server
       volumes:
+      - name: extensions
+        emptyDir: {}
       - emptyDir: {}
         name: plugins-home
       - emptyDir: {}
