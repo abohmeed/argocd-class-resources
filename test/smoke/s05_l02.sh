@@ -57,8 +57,11 @@ stringData:
   password: "${SECRET_VALUE}"
 EOF
 kubeseal --cert "${WORKDIR}/pub-cert.pem" --format=yaml < "${WORKDIR}/secret.yaml" > "${WORKDIR}/sealed.yaml"
-if grep -qE '^\s*password: [A-Za-z0-9+/=]{20,}$' "${WORKDIR}/sealed.yaml"; then
-  _fail "sealed.yaml's password field still looks like plain base64 of the plaintext, not SealedSecrets ciphertext"
+# SealedSecrets ciphertext is itself base64, so a base64-looking value proves nothing. What must not appear is the
+# plaintext, or merely its base64 (a Secret that was only base64-encoded, not sealed).
+plain_b64="$(printf '%s' "${SECRET_VALUE}" | base64)"
+if grep -qF "${SECRET_VALUE}" "${WORKDIR}/sealed.yaml" || grep -qF "${plain_b64}" "${WORKDIR}/sealed.yaml"; then
+  _fail "sealed.yaml carries the plaintext or its plain base64: that is not SealedSecrets ciphertext"
 fi
 kubectl apply -f "${WORKDIR}/sealed.yaml" >/dev/null
 decrypted=""
