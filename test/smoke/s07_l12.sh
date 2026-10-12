@@ -129,7 +129,7 @@ ADMIN_PW="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath
 argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 
 step "admin's own logs read is refused: blocked underneath by the impersonated SA's Kubernetes RBAC, not by policy.csv"
-out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)" && rc=0 || rc=$?
+out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)"; rc=$?
 if [ "${rc}" -eq 0 ]; then
   _fail "admin could read logs through the impersonated app: the impersonated ServiceAccount has no pods/log permission, so this should have been refused underneath, regardless of admin's own Argo CD RBAC"
 else
