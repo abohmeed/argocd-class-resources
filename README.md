@@ -27,6 +27,8 @@ Each lesson's Resources page names the branch that lesson uses. The course uses 
 
 Section 01 clones `main` in S01-L03. S01-L04 creates `baseline/before-rollouts` in your clone, and Sections 02 to 09 stay on it. Switch to `main` before S10-L02, as S10-L01 says.
 
+On the `baseline/before-rollouts` branch, push with `git push`. Never `git push origin main` there: that does not send your commits to the branch you are working on.
+
 Section 11 also uses the application repository, [argocd-class-app](https://github.com/abohmeed/argocd-class-app), on its `main` branch.
 
 ## What you need
