@@ -20,10 +20,7 @@ for app in storefront checkout; do
 done
 
 step "Overlays render what the lessons say they render"
-# main is the Section 10 state: storefront is an Argo Rollout from S10-L02 on (the S01 to S09 checks read the
-# baseline branch, where it is still a Deployment). This check named a Deployment, and failed on main
-# from 2026-10-08, when storefront became a Rollout (commit 6573994).
-assert_renders_kind "apps/storefront/overlays/dev" "Rollout"
+assert_renders_kind "apps/storefront/overlays/dev" "Deployment"
 assert_renders_kind "apps/storefront/overlays/dev" "Service"
 assert_renders_kind "apps/storefront/overlays/dev" "ConfigMap"
 assert_renders_kind "apps/checkout/overlays/dev" "StatefulSet"
