@@ -1,0 +1,17 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: storefront-prod-us-test
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/abohmeed/argocd-class-resources.git
+    targetRevision: baseline/before-rollouts
+    path: apps/storefront/overlays/prod
+  destination:
+    server: https://10.128.33.16:6443
+    namespace: storefront-prod
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
