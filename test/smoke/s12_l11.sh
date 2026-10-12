@@ -59,7 +59,7 @@ fi
 kubectl -n argocd patch cm argocd-cm --type merge -p '
 data:
   resource.customizations: |
-    apps/Deployment:
+    argoproj.io/Rollout:
       health.lua: |
         hs = {}
         hs.status = "Degraded"
@@ -76,7 +76,7 @@ while [ "$(date +%s)" -lt "${deadline}" ]; do
   [ "${health}" = "Degraded" ] && break
   sleep 5
 done
-ready="$(kubectl get deployment storefront -n "${NS}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
+ready="$(kubectl get rollout storefront -n "${NS}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
 if [ "${health}" = "Degraded" ] && [ "${ready}" -ge 1 ] 2>/dev/null; then
   _pass "Application reports Degraded while the Deployment itself has ${ready} ready replica(s): the exact contradiction this lesson diagnoses"
 else
