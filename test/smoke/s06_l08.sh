@@ -1,22 +1,32 @@
 #!/usr/bin/env bash
 # lesson: s06_l08 PreDelete and PostDelete hooks: cleaning up what Kubernetes never owned
-# PostDelete: cleaning up what Kubernetes never owned.
+# A PreDelete hook is what makes Argo CD hold an Application open to back up what it is about to delete.
 #
-# The claim: the `resources-finalizer.argocd.argoproj.io` finalizer holds an Application object in
-# place long enough for its PostDelete hook to run BEFORE the workload it backs up is gone, and a
-# PostDelete backup written to a hostPath survives the namespace deletion that follows it: it has
-# to, since the whole point of a PostDelete backup is outliving the thing being torn down. Proven
-# against a scratch Application/namespace this script owns; it never touches the shared `checkout`
-# Application the real lesson deletes and recreates.
+# Two claims, checked two ways.
+#
+# 1. Cluster-tier, and it runs here: a PreDelete hook in the Application's manifests makes Argo CD add
+#    `pre-delete-finalizer.argocd.argoproj.io` (and its /cleanup companion) to the Application. Do.md step 3
+#    expects exactly that pair on screen, so the script checks the same two strings. Driven through a scratch
+#    Application synced from local manifests, which is how this suite proves hook behaviour without
+#    pushing to the companion repo.
+#
+# 2. The runtime part is declared external below. The lesson's backup runs when the checkout Application is
+#    DELETED, and Argo CD runs a PreDelete hook from the Application's source. The lesson gets that hook into
+#    the source by committing predelete-backup-job.yaml to apps/checkout/base and pushing it (Do.md step 2).
+#    A --local sync does not put the hook where a deletion looks, so the backup cannot be observed here
+#    without that push, and the CI token is read-only by design (smoke.yml: contents: read).
+#
+# The earlier version of this script drove a PostDelete hook. The lesson was restored to PreDelete on
+# 2026-10-03 (Do.md header), so this script follows the lesson.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 LESSON_ID="s06l08"
 APP="${LESSON_ID}-probe"
 NS="${LESSON_ID}-probe"
-BACKUP_DIR="/tmp/${LESSON_ID}-backup"
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
+WORKDIR="$(mktemp -d)"
 
-lesson S06-L08 "a PostDelete hook backs up before teardown, and the finalizer holds the Application open long enough to let it"
+lesson S06-L08 "a PreDelete hook makes Argo CD add pre-delete-finalizer to the Application, which holds it open for the backup"
 tier cluster
 
 # This lesson is proven through Argo CD's own API layer, so the CLI needs a session. On a
@@ -26,42 +36,22 @@ tier cluster
 argocd_cli_ready
 
 cleanup() {
-  kubectl delete pod "${LESSON_ID}-checker" -n default --ignore-not-found >/dev/null 2>&1 || true
-  kubectl run "${LESSON_ID}-cleaner" --image=busybox:1.37 --restart=Never -n default \
-    --overrides="{\"spec\":{\"containers\":[{\"name\":\"cleaner\",\"image\":\"busybox:1.37\",\"command\":[\"rm\",\"-rf\",\"/backup\"],\"volumeMounts\":[{\"name\":\"backup\",\"mountPath\":\"/backup\"}]}],\"volumes\":[{\"name\":\"backup\",\"hostPath\":{\"path\":\"${BACKUP_DIR}\",\"type\":\"DirectoryOrCreate\"}}]}}" \
-    >/dev/null 2>&1 || true
-  sleep 3
-  kubectl delete pod "${LESSON_ID}-cleaner" -n default --ignore-not-found --wait=false >/dev/null 2>&1 || true
   argocd app delete "${APP}" --cascade --yes >/dev/null 2>&1 || true
   kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
+  rm -rf "${WORKDIR}"
 }
 trap cleanup EXIT
 
 kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
-argocd app create "${APP}" --repo "${REPO}" --path apps/checkout/base \
-  --dest-namespace "${NS}" --dest-server https://kubernetes.default.svc \
-  --sync-policy none >/dev/null
-
-step "the Application carries the finalizer that makes a controlled deletion possible"
-kubectl patch application "${APP}" -n argocd --type merge \
-  -p '{"metadata":{"finalizers":["resources-finalizer.argocd.argoproj.io"]}}' >/dev/null
-fin="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.metadata.finalizers}')"
-case "${fin}" in
-  *resources-finalizer.argocd.argoproj.io*) _pass "resources-finalizer.argocd.argoproj.io present on ${APP}" ;;
-  *) _fail "resources-finalizer.argocd.argoproj.io is missing from ${APP}: deletion would remove the Application immediately, with no chance for a PostDelete hook to run" ;;
-esac
-
-step "sync a scratch workload plus a PostDelete backup hook"
-WORKDIR="$(mktemp -d)"
-cat > "${WORKDIR}/kustomization.yaml" <<EOF
+cat > "${WORKDIR}/kustomization.yaml" <<YAML
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - deployment.yaml
-  - backup-job.yaml
-EOF
-cat > "${WORKDIR}/deployment.yaml" <<EOF
+  - predelete-backup-job.yaml
+YAML
+cat > "${WORKDIR}/deployment.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -79,60 +69,50 @@ spec:
         - name: probe
           image: ${HTTP_ECHO_IMAGE}
           args: ["-listen=:5678", "-text=probe"]
-EOF
-cat > "${WORKDIR}/backup-job.yaml" <<EOF
+YAML
+# The lesson's Step 1 manifest, with the probe's namespace in place of checkout's.
+cat > "${WORKDIR}/predelete-backup-job.yaml" <<YAML
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: probe-postdelete-backup
+  name: probe-predelete-backup
   namespace: ${NS}
   annotations:
-    argocd.argoproj.io/hook: PostDelete
+    argocd.argoproj.io/hook: PreDelete
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
+  backoffLimit: 0
   template:
     spec:
       restartPolicy: Never
       containers:
         - name: backup
           image: busybox:1.37
-          command: ["sh", "-c", "mkdir -p /backup && echo backed-up-$(date +%s) > /backup/marker.txt"]
-          volumeMounts:
-            - name: backup
-              mountPath: /backup
-      volumes:
-        - name: backup
-          hostPath:
-            path: ${BACKUP_DIR}
-            type: DirectoryOrCreate
-EOF
-argocd app sync "${APP}" --local "${WORKDIR}" >/dev/null 2>&1 || true
-kubectl rollout status deployment/probe -n "${NS}" --timeout=90s >/dev/null 2>&1 \
-  || _fail "scratch workload never became Ready: cannot test PostDelete teardown against it"
-rm -rf "${WORKDIR}"
+          command: ["sh", "-c", "echo backed-up > /dev/null"]
+YAML
 
-step "delete the Application for real, and confirm the PostDelete hook runs before it's gone"
-argocd app delete "${APP}" --cascade --yes >/dev/null 2>&1 || true
-gone=no
-for _ in $(seq 1 30); do
-  kubectl get application "${APP}" -n argocd >/dev/null 2>&1 || { gone=yes; break; }
-  sleep 3
-done
-[ "${gone}" = yes ] \
-  && _pass "Application ${APP} fully deleted" \
-  || _fail "Application ${APP} did not finish deleting within 90s: check whether the PostDelete hook is stuck"
+argocd app create "${APP}" --repo "${REPO}" --path apps/checkout/base \
+  --dest-namespace "${NS}" --dest-server https://kubernetes.default.svc \
+  --sync-policy none >/dev/null
 
-step "the backup landed on the node BEFORE the namespace it protected disappeared"
-kubectl delete pod "${LESSON_ID}-checker" -n default --ignore-not-found >/dev/null 2>&1 || true
-kubectl run "${LESSON_ID}-checker" --image=busybox:1.37 --restart=Never -n default \
-  --overrides="{\"spec\":{\"containers\":[{\"name\":\"checker\",\"image\":\"busybox:1.37\",\"command\":[\"cat\",\"/backup/marker.txt\"],\"volumeMounts\":[{\"name\":\"backup\",\"mountPath\":\"/backup\"}]}],\"volumes\":[{\"name\":\"backup\",\"hostPath\":{\"path\":\"${BACKUP_DIR}\",\"type\":\"DirectoryOrCreate\"}}]}}" \
-  >/dev/null
-kubectl wait --for=condition=Ready=false pod/"${LESSON_ID}-checker" -n default --timeout=30s >/dev/null 2>&1 || true
-marker="$(kubectl logs "${LESSON_ID}-checker" -n default 2>/dev/null || true)"
-kubectl delete pod "${LESSON_ID}-checker" -n default --ignore-not-found >/dev/null 2>&1 || true
-case "${marker}" in
-  backed-up-*) _pass "PostDelete backup file is present on the node: '${marker}': it ran and survived the namespace it protected" ;;
-  *) _fail "no backup marker found on the node (got '${marker}'): the PostDelete hook either did not run or did not complete before teardown" ;;
+step "sync the workload and the PreDelete hook from local manifests (the hook is not run by a sync)"
+argocd_sync_local "${APP}" "${WORKDIR}" 120 || _fail "the scratch Application did not finish its sync within 120s"
+rollout_ok=no
+kubectl rollout status deployment/probe -n "${NS}" --timeout=120s >/dev/null 2>&1 && rollout_ok=yes
+[ "${rollout_ok}" = yes ] && _pass "the scratch workload is Ready" || _fail "the scratch workload never became Ready"
+backup_jobs="$(kubectl get jobs -n "${NS}" --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+[ "${backup_jobs}" -eq 0 ] && _pass "no backup Job ran during the sync: a PreDelete hook waits for the deletion" \
+  || _fail "a backup Job exists after a plain sync (${backup_jobs}): a PreDelete hook should not run on sync"
+
+step "the Application carries the PreDelete finalizers Argo CD adds when it sees the hook (Do.md step 3)"
+fin="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.metadata.finalizers}' 2>/dev/null || true)"
+case "${fin}" in
+  *'pre-delete-finalizer.argocd.argoproj.io'*'pre-delete-finalizer.argocd.argoproj.io/cleanup'*)
+    _pass "Argo CD added pre-delete-finalizer.argocd.argoproj.io and its /cleanup companion: the Application will be held for the hook" ;;
+  *) _fail "expected the pre-delete finalizer pair on ${APP}, got '${fin:-none}': without it the deletion would not wait for the backup" ;;
 esac
+
+needs_external "a Git push of the PreDelete hook into the companion repo, then a real deletion of an Application sourced from it" \
+  "the runtime proof needs the hook in the Application's Git source, and the lesson's own step 2 gets it there with a commit and push; this CI token is read-only by design (smoke.yml permissions: contents: read), so the backup cannot be observed on a CI cluster"
 
 smoke_done
