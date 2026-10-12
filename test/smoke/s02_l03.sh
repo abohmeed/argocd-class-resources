@@ -48,7 +48,7 @@ kubectl apply -n argocd -f "${BASELINE}" >/dev/null
 _pass "v3.2.12 baseline applied client-side, exactly as the docs' own command does"
 
 step "the plain 'upgrade' anyone following the docs would run must FAIL"
-out="$(kubectl apply -n argocd -f "${TARGET}" 2>&1)"; rc=$?
+out="$(kubectl apply -n argocd -f "${TARGET}" 2>&1)" && rc=0 || rc=$?
 if [ "${rc}" -ne 0 ] && printf '%s' "${out}" | grep -q 'may not be more than 262144 bytes'; then
   _pass "client-side apply failed with the exact 262144-byte annotation error the lesson shows on screen"
 elif [ "${rc}" -eq 0 ]; then
