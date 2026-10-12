@@ -33,7 +33,9 @@ else
 fi
 
 step "the same failure looks nothing like an RBAC Forbidden: the two must never be confused"
-forbidden_shape="$(kubectl get pods -n a-namespace-this-user-cannot-see 2>&1 | head -1)"
+# The CI kubeconfig is cluster-admin, so nothing it asks for is Forbidden. Impersonate an account with no
+# rights instead: that is the same RBAC refusal a student's restricted account would get.
+forbidden_shape="$(kubectl get pods -n default --as=system:serviceaccount:default:no-rights-here 2>&1 | head -1 || true)"
 if printf '%s' "${forbidden_shape}" | grep -qE 'Forbidden|forbidden'; then
   _pass "an RBAC failure names a verb and a resource, and never mentions size: visibly different from Step 1's error"
 else
