@@ -42,7 +42,9 @@ cp "${REPO_ROOT}/charts/storefront/Chart.yaml" "${CHART_DIR}/Chart.yaml"
 cp "${REPO_ROOT}/charts/storefront/values.yaml" "${CHART_DIR}/values.yaml"
 cp "${REPO_ROOT}/charts/storefront/templates/"*.yaml "${CHART_DIR}/templates/"
 kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-helm install "${RELEASE}" "${CHART_DIR}" -n "${NS}" >/dev/null
+# --server-side=false, as the lesson's step 1 installs it: Helm 4 records a plain install as server-side
+# apply, and --force-replace is refused with server-side apply. Client-side apply is what makes the force flags run.
+helm install "${RELEASE}" "${CHART_DIR}" -n "${NS}" --server-side=false >/dev/null
 
 step "the old --atomic still runs, warning that it was renamed to --rollback-on-failure"
 out="$(helm upgrade "${RELEASE}" "${CHART_DIR}" -n "${NS}" --atomic --force 2>&1)" && rc=0 || rc=$?
