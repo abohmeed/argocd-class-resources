@@ -25,6 +25,21 @@ patches:
     target:
       kind: SealedSecret
       name: checkout-db
+  # Staging only: the SealedSecret syncs at wave -2, so checkout-db exists before Postgres
+  # (wave -1) reads it. This patch adds the wave only and merges it into the object's annotations,
+  # so the annotations a reseal carries (sealedsecrets.bitnami.com/namespace-wide) survive. The
+  # base's ciphertext stays, so the credential still fails to decrypt in checkout-staging until it
+  # is resealed for that namespace.
+  - target:
+      kind: SealedSecret
+      name: checkout-db
+    patch: |-
+      apiVersion: bitnami.com/v1alpha1
+      kind: SealedSecret
+      metadata:
+        name: checkout-db
+        annotations:
+          argocd.argoproj.io/sync-wave: "-2"
   # Capstone team fleet only (base keeps the PreSync migrations, Section 06). The two migrations
   # become Sync-phase Jobs in wave order: the SQL ConfigMap is in place before its Job, migrate
   # runs at wave 0 after Postgres (wave -1), migrate2 at wave 1, and the API (wave 2) never starts
