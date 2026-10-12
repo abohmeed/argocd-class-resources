@@ -117,23 +117,51 @@ kubectl rollout status deploy/argocd-server -n argocd --timeout=120s >/dev/null 
   || _fail "argocd-server did not roll out after the insecure patch"
 
 step "the lesson's own httproute.yaml attaches ONLY to websecure: the correct, non-trap form"
-kubectl apply -f "${REPO_ROOT}/httproute.yaml" >/dev/null 2>&1 || _fail "could not apply httproute.yaml from the repo root: does it exist? this lesson's Step 5 creates it"
+# The lesson has the student WRITE this file (Do.md step 9) and apply it (step 10). It is not a file the
+# companion repo carries, so the script writes the same block the lesson shows, to a scratch file, and applies that.
+route_file="$(mktemp)"
+cat > "${route_file}" <<'YAML'
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: argocd-server
+  namespace: argocd
+spec:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: kube-system
+      sectionName: websecure
+  hostnames:
+    - argocd.local
+  rules:
+    - backendRefs:
+        - name: argocd-server
+          port: 80
+YAML
+kubectl apply -f "${route_file}" >/dev/null 2>&1 || { rm -f "${route_file}"; _fail "could not apply the HTTPRoute from the lesson's step 9 block"; }
+rm -f "${route_file}"
 accepted=""
 for _ in $(seq 1 12); do
   accepted="$(kubectl get httproute argocd-server -n argocd -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null)"
   [ "${accepted}" = "True" ] && break
   sleep 5
 done
-[ "${accepted}" = "True" ] && _pass "httproute.yaml is Accepted" || _fail "httproute.yaml never reached Accepted=True"
+[ "${accepted}" = "True" ] && _pass "the lesson's HTTPRoute is Accepted" || _fail "the lesson's HTTPRoute never reached Accepted=True"
 
 parent_count="$(kubectl get httproute argocd-server -n argocd -o jsonpath='{.status.parents}' 2>/dev/null | grep -o 'sectionName' | wc -l | tr -d ' ')"
 if [ "${parent_count}" = "1" ]; then
-  _pass "httproute.yaml attached to exactly one listener (websecure): TLS-only, as the lesson intends"
+  _pass "the lesson's HTTPRoute attached to exactly one listener (websecure): TLS-only, as the lesson intends"
 else
-  _fail "httproute.yaml attached to ${parent_count} listeners, not 1: it is reachable over plain HTTP too, exactly the silent trap the lesson warns about; check sectionName in parentRefs"
+  _fail "the lesson's HTTPRoute attached to ${parent_count} listeners, not 1: it is reachable over plain HTTP too, exactly the silent trap the lesson warns about; check sectionName in parentRefs"
 fi
 
-step "prove the trap is real: the SAME route, minus sectionName, attaches to BOTH listeners"
+step "what leaving out sectionName does on this Gateway: the route is tried on every listener, and web refuses it"
+# Measured on this Gateway (k3s, Traefik, 2026-10-12): without sectionName the route is Accepted by
+# websecure, and the web listener keeps 0 attached routes, because web admits routes from the SAME
+# namespace only (allowedRoutes from: Same) and this route lives in argocd. The lesson says this too
+# (Do.md: "web showed 0 attached routes"; on a stock k3s the plain-HTTP exposure does not happen). The
+# trap is latent: it opens the day web is widened to from: All. So the probe asserts the observed
+# attachment, and does not widen the shared listener to prove the latent case.
 kubectl apply -f - >/dev/null <<YAML
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -151,12 +179,18 @@ spec:
         - name: argocd-server
           port: 80
 YAML
-sleep 5
-bad_parents="$(kubectl get httproute "${PROBE_BAD}" -n argocd -o jsonpath='{.status.parents}' 2>/dev/null | grep -o 'sectionName' | wc -l | tr -d ' ')"
-if [ "${bad_parents}" -ge 2 ]; then
-  _pass "confirmed: dropping sectionName attaches to ${bad_parents} listeners (plain HTTP included): this is exactly the trap the lesson warns about, and it IS still real"
+probe_accepted=""
+for _ in $(seq 1 12); do
+  probe_accepted="$(kubectl get httproute "${PROBE_BAD}" -n argocd -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null || true)"
+  [ "${probe_accepted}" = "True" ] && break
+  sleep 5
+done
+web_attached="$(kubectl get gateway traefik-gateway -n kube-system -o jsonpath='{.status.listeners[?(@.name=="web")].attachedRoutes}' 2>/dev/null || true)"
+web_from="$(kubectl get gateway traefik-gateway -n kube-system -o jsonpath='{.spec.listeners[?(@.name=="web")].allowedRoutes.namespaces.from}' 2>/dev/null || true)"
+if [ "${probe_accepted}" = "True" ] && [ "${web_attached:-x}" = "0" ] && [ "${web_from}" = "Same" ]; then
+  _pass "without sectionName the route is Accepted, and the web listener (from: ${web_from}) keeps ${web_attached} attached routes: plain HTTP stays closed, as the lesson records"
 else
-  _fail "dropping sectionName only attached to ${bad_parents} listener(s): the trap this lesson warns about no longer reproduces on this Gateway API version; the troubleshooting table's warning may now be inaccurate"
+  _fail "expected the sectionName-less route Accepted and web at 0 attached routes with from: Same; got accepted='${probe_accepted:-none}', web attachedRoutes='${web_attached:-none}', web from='${web_from:-none}'"
 fi
 
 smoke_done
