@@ -25,36 +25,14 @@ for marker in kustomization.yml Chart.yaml values.yaml .argocd-source.yaml; do
     _fail "apps/storefront/manifests/${marker} exists: the flip this lesson shows must come from kustomization.yaml alone"
   fi
 done
-# The marker itself. Whether main CARRIES it depends on which lesson main is in: S04-L02 commits
-# it, and the retake and the S04-L01 prep (ACD-87) require the folder to be plain again, with no
-# kustomization.yaml. So the lesson's own file is checked where it is committed, and otherwise
-# built from the lesson's text in a scratch copy, so the claim is still checked every run.
-lesson_kustomization='apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - deployment.yaml
-  - service.yaml'
-if [ -e "${REPO_ROOT}/apps/storefront/manifests/kustomization.yaml" ]; then
-  assert_file_contains "apps/storefront/manifests/kustomization.yaml" '^  - deployment\.yaml\s*$' \
-    "kustomization.yaml lists deployment.yaml"
-  assert_file_contains "apps/storefront/manifests/kustomization.yaml" '^  - service\.yaml\s*$' \
-    "kustomization.yaml lists service.yaml"
-  assert_file_lacks "apps/storefront/manifests/kustomization.yaml" '^(namespace|images|patches|replicas|configMapGenerator|namePrefix|nameSuffix|commonLabels|labels):' \
-    "kustomization.yaml transforms nothing: the only change is the detected source type"
-  assert_kustomize_builds "apps/storefront/manifests"
-else
-  _pass "main holds the plain manifests folder S04-L01 records (no kustomization.yaml): the lesson's file is checked in a scratch copy"
-  scratch="$(mktemp -d)"
-  cp "${REPO_ROOT}/apps/storefront/manifests/deployment.yaml" "${REPO_ROOT}/apps/storefront/manifests/service.yaml" "${scratch}/"
-  printf '%s\n' "${lesson_kustomization}" > "${scratch}/kustomization.yaml"
-  rendered="$(kubectl kustomize "${scratch}" 2>/dev/null || true)"
-  rm -rf "${scratch}"
-  if grep -q '^kind: Deployment$' <<<"${rendered}" && grep -q '^kind: Service$' <<<"${rendered}"; then
-    _pass "the lesson's kustomization.yaml, built over the plain folder, renders the Deployment and the Service"
-  else
-    _fail "the lesson's kustomization.yaml does not render the plain folder's Deployment and Service"
-  fi
-fi
+assert_exists_file "apps/storefront/manifests/kustomization.yaml"
+assert_file_contains "apps/storefront/manifests/kustomization.yaml" '^  - deployment\.yaml\s*$' \
+  "kustomization.yaml lists deployment.yaml"
+assert_file_contains "apps/storefront/manifests/kustomization.yaml" '^  - service\.yaml\s*$' \
+  "kustomization.yaml lists service.yaml"
+assert_file_lacks "apps/storefront/manifests/kustomization.yaml" '^(namespace|images|patches|replicas|configMapGenerator|namePrefix|nameSuffix|commonLabels|labels):' \
+  "kustomization.yaml transforms nothing: the only change is the detected source type"
+assert_kustomize_builds "apps/storefront/manifests"
 
 step "the base and both new overlays DO carry the marker that triggers Kustomize detection"
 assert_exists_file "apps/storefront/base/kustomization.yaml"
