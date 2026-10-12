@@ -10,30 +10,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck disable=SC1091
 source "${REPO_ROOT}/test/versions.env"
 
-# Which repo state a script reads. Producer, 2026-10-10: main carries Section 10 on (storefront is an
-# Argo Rollout there), and every lesson before Section 10 targets baseline/before-rollouts, where
-# storefront is still the plain Deployment those lessons teach. So the scripts for S01 to S09 check the
-# baseline tree, and S10 on checks main. The baseline tree is extracted once per commit, into a cache
-# directory, and REPO_ROOT points at it for that script only. CI fetches the branch in the workflow.
-BASELINE_REF="origin/baseline/before-rollouts"
-case "$(basename "${BASH_SOURCE[1]:-$0}")" in
-  s0[1-9]_*)
-    baseline_sha="$(git -C "${REPO_ROOT}" rev-parse --verify -q "${BASELINE_REF}^{commit}" 2>/dev/null || true)"
-    if [ -z "${baseline_sha}" ]; then
-      printf '  \033[31mFAIL\033[0m %s is not fetched: the pre-Section-10 checks read it (CI fetches it in the workflow)\n' "${BASELINE_REF}" >&2
-      exit 1
-    fi
-    baseline_tree="${TMPDIR:-/tmp}/argocd-course-baseline-${baseline_sha}"
-    if [ ! -f "${baseline_tree}/.extracted" ]; then
-      rm -rf "${baseline_tree}"
-      mkdir -p "${baseline_tree}"
-      git -C "${REPO_ROOT}" archive "${baseline_sha}" | tar -x -C "${baseline_tree}"
-      touch "${baseline_tree}/.extracted"
-    fi
-    REPO_ROOT="${baseline_tree}"
-    ;;
-esac
-
 _pass() { printf '  \033[32mok\033[0m   %s\n' "$1"; }
 # %b, not %s: several call sites embed "\n<details>" to print captured output under the
 # headline. With %s those arrive as a literal backslash-n and the details run on one line.
