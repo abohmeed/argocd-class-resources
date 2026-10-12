@@ -85,7 +85,7 @@ argocd account update-password --account "${ACCOUNT}" --new-password "${PASSWORD
 
 step "full applications-level RBAC, no logs line: argocd app logs is refused, not merely empty"
 argocd login "localhost:${PORT}" --insecure --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
-out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)"; rc=$?
+out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)" && rc=0 || rc=$?
 if [ "${rc}" -eq 0 ]; then
   _fail "argocd app logs succeeded with no logs policy line granted: logs is not actually gated separately from applications"
 else
@@ -98,7 +98,7 @@ kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
   "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, create, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, logs, get, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
 sleep 5
 argocd login "localhost:${PORT}" --insecure --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
-out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)"; rc=$?
+out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)" && rc=0 || rc=$?
 if [ "${rc}" -eq 0 ]; then
   _pass "argocd app logs succeeds once the logs/get policy line is added"
 else
