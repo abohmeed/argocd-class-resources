@@ -53,7 +53,7 @@ fi
 
 step "install Argo Rollouts ${ARGO_ROLLOUTS_VERSION}"
 kubectl create namespace argo-rollouts --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl apply -n argo-rollouts -f "https://github.com/argoproj/argo-rollouts/releases/download/${ARGO_ROLLOUTS_VERSION}/install.yaml" >/dev/null
+kubectl apply --server-side -n argo-rollouts -f "https://github.com/argoproj/argo-rollouts/releases/download/${ARGO_ROLLOUTS_VERSION}/install.yaml" >/dev/null
 wait_for_rollout "deployment/argo-rollouts" "argo-rollouts"
 
 step "wire a canary at 20% with a Job-provider analysis step, correct banner, and watch it promote unattended"
