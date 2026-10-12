@@ -94,8 +94,15 @@ FLAP_PID=$!
 sleep 45
 kill "${FLAP_PID}" >/dev/null 2>&1 || true
 FLAP_PID=""
-sleep 20
-still_present="$(kubectl get rollout storefront -n "${NS}" -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
+# selfHeal reverts on the controller's next reconcile of the Application. Ask for one, then poll for the revert
+# rather than trusting a fixed wait, since the Rollout's own rollout after each flap takes a while to settle.
+kubectl -n argocd annotate application "${APP}" argocd.argoproj.io/refresh=normal --overwrite >/dev/null 2>&1 || true
+still_present="x"
+for _ in $(seq 1 24); do
+  still_present="$(kubectl get rollout storefront -n "${NS}" -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
+  [ -z "${still_present}" ] && break
+  sleep 5
+done
 if [ -z "${still_present}" ]; then
   _pass "with plain selfHeal and no ignoreDifferences, the flapped label was reverted away: reproduces the lesson's opener"
 else
