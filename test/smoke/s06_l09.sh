@@ -28,6 +28,7 @@ tier cluster
 argocd_cli_ready
 
 cleanup() {
+  argocd app delete "${APP}-opts" --cascade=false --yes >/dev/null 2>&1 || true
   argocd app delete "${APP}" --cascade --yes >/dev/null 2>&1 || true
   kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
   rm -rf "${WORKDIR}"
@@ -86,10 +87,17 @@ argocd app create "${APP}" --repo "${REPO}" --path apps/checkout/base \
   --sync-policy none >/dev/null
 
 step "all four sync options set cleanly"
+# On a throwaway Application: Replace=true is refused by this API server (server.sync.replace.allowed is off
+# by default in v3.5.3, FailedPrecondition on sync), so it must not sit on the Application the syncs use.
+OPT_APP="${APP}-opts"
+argocd app create "${OPT_APP}" --repo "${REPO}" --path apps/checkout/base \
+  --dest-namespace "${NS}" --dest-server https://kubernetes.default.svc \
+  --sync-policy none >/dev/null
 for opt in ServerSideApply=true CreateNamespace=true Replace=true SkipDryRunOnMissingResource=true; do
-  argocd app set "${APP}" --sync-option "${opt}" >/dev/null
+  argocd app set "${OPT_APP}" --sync-option "${opt}" >/dev/null
 done
-opts="$(argocd app get "${APP}" -o yaml 2>/dev/null | grep -A6 'syncOptions:' || true)"
+opts="$(argocd app get "${OPT_APP}" -o yaml 2>/dev/null | grep -A6 'syncOptions:' || true)"
+argocd app delete "${OPT_APP}" --cascade=false --yes >/dev/null 2>&1 || true
 for opt in ServerSideApply=true CreateNamespace=true Replace=true SkipDryRunOnMissingResource=true; do
   if printf '%s' "${opts}" | grep -qF "${opt}"; then
     _pass "sync option ${opt} is set"
