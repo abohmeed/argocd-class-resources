@@ -12,12 +12,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 lesson S05-L02 "a SealedSecret decrypts to the exact credential sealed, and ONLY in the namespace it was scoped to"
-tier external
-
-# Declared external for a measured RUNNER limit, not a lesson defect. The cluster body below
-# is kept intact for a host that can run it; restore "tier cluster" and smoke_done when the limit is lifted.
-needs_external "a running Sealed Secrets controller" \
-  "runner limit: the Sealed Secrets controller never became ready on the GitHub-hosted runner (run 37111303388), so nothing can be sealed or unsealed here"
+tier cluster
 
 LESSON_ID="s05l02"
 NS_A="${LESSON_ID}-a"
@@ -84,4 +79,4 @@ else
   _pass "the SealedSecret does NOT decrypt in ${NS_B}: strict scope really does tie ciphertext to the namespace it was sealed for"
 fi
 
-# smoke_done  (unreachable while this script is tier external; restore with tier cluster)
+smoke_done
