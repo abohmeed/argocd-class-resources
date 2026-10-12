@@ -34,7 +34,7 @@ metadata: {name: ${APPSET}, namespace: argocd}
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
-  ${preserve:+preserveResourcesOnDeletion: true}
+  ${preserve:+syncPolicy: {preserveResourcesOnDeletion: true}}
   generators:
     - list:
         elements:
@@ -101,9 +101,9 @@ base_appset "true" | kubectl apply -f - >/dev/null
 wait_for_sync "payments-dev" 180
 wait_for_sync "search-dev" 180
 wait_for_sync "loyalty-dev" 180
-preserve_flag="$(kubectl get applicationset "${APPSET}" -n argocd -o jsonpath='{.spec.preserveResourcesOnDeletion}')"
+preserve_flag="$(kubectl get applicationset "${APPSET}" -n argocd -o jsonpath='{.spec.syncPolicy.preserveResourcesOnDeletion}')"
 [ "${preserve_flag}" = "true" ] && _pass "preserveResourcesOnDeletion: true is actually applied before the delete" \
-  || _fail "spec.preserveResourcesOnDeletion reads '${preserve_flag}', expected true: the delete below would prove nothing"
+  || _fail "spec.syncPolicy.preserveResourcesOnDeletion reads '${preserve_flag}', expected true: the delete below would prove nothing"
 
 step "Step 3: delete it again: Application objects gone, Deployments and Services survive, still serving"
 kubectl delete applicationset "${APPSET}" -n argocd --wait=true --timeout=90s >/dev/null
