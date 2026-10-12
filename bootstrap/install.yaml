@@ -33442,7 +33442,7 @@ metadata:
     app.kubernetes.io/part-of: argocd
   name: argocd-application-controller
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: argocd-application-controller
@@ -33483,7 +33483,7 @@ spec:
               name: argocd-cmd-params-cm
               optional: true
         - name: ARGOCD_CONTROLLER_REPLICAS
-          value: "2"
+          value: "1"
         - name: ARGOCD_RECONCILIATION_TIMEOUT
           valueFrom:
             configMapKeyRef:
