@@ -112,7 +112,9 @@ step "add the explicit update/* and delete/* wildcard actions: the same delete n
 argocd login argocd.local ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
   "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, get, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete/*, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
-sleep 5
+# argocd-server reloads argocd-rbac-cm on its own schedule: give the new policy time to take effect before the
+# delete is tried (the first attempt after a policy change raced the reload).
+sleep 20
 argocd login argocd.local ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
 if argocd app delete-resource "${APP}" --kind Pod --resource-name "${POD_NAME}" --namespace "${NS}" --grpc-web >/dev/null 2>&1; then
   _pass "with update/* and delete/* granted, the same Pod delete now succeeds"
