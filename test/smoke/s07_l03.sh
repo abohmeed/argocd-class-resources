@@ -112,7 +112,7 @@ fi
 step "whitelist exactly ClusterRole, and only ClusterRole syncs"
 kubectl patch appproject "${PROJ}" -n argocd --type merge -p \
   '{"spec":{"clusterResourceWhitelist":[{"group":"rbac.authorization.k8s.io","kind":"ClusterRole"}]}}' >/dev/null
-argocd app sync "${APP_CR}" --local "${TMPDIR}/clusterrole" >/dev/null 2>&1
+argocd app sync "${APP_CR}" --local "${TMPDIR}/clusterrole" >/dev/null 2>&1 || true  # the next check reads the outcome
 if kubectl get clusterrole "${CR_NAME}" >/dev/null 2>&1; then
   _pass "ClusterRole ${CR_NAME} synced once whitelisted"
 else
