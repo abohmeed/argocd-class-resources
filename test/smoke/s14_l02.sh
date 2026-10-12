@@ -52,7 +52,7 @@ spec:
   project: ${PROJ}
   source: {repoURL: "https://github.com/abohmeed/argocd-class-resources.git", targetRevision: main, path: apps/storefront/base}
   destination: {server: "https://kubernetes.default.svc", namespace: "${NS}"}
-  syncPolicy: {syncOptions: ["CreateNamespace=true"]}
+  syncPolicy: {syncOptions: []}
 EOF
 wait_for_sync "${APP}" 120
 

@@ -27,8 +27,8 @@ assert_file_contains "apps/checkout/base/kustomization.yaml" 'sealedsecret\.yaml
   "apps/checkout/base/kustomization.yaml lists sealedsecret.yaml as a resource"
 
 step "it renders into both checkout-dev and checkout-staging via each overlay's namespace transformer"
-dev_rendered="$(kubectl kustomize "${REPO_ROOT}/apps/checkout/overlays/dev" 2>&1 | grep -A2 'kind: SealedSecret' || true)"
-staging_rendered="$(kubectl kustomize "${REPO_ROOT}/apps/checkout/overlays/staging" 2>&1 | grep -A2 'kind: SealedSecret' || true)"
+dev_rendered="$(kubectl kustomize "${REPO_ROOT}/apps/checkout/overlays/dev" 2>&1 | grep -A4 'kind: SealedSecret' || true)"
+staging_rendered="$(kubectl kustomize "${REPO_ROOT}/apps/checkout/overlays/staging" 2>&1 | grep -A4 'kind: SealedSecret' || true)"
 printf '%s' "${dev_rendered}" | grep -q 'namespace: checkout-dev' \
   && _pass "checkout/overlays/dev renders the SealedSecret stamped checkout-dev" \
   || _fail "checkout/overlays/dev did not render a SealedSecret stamped checkout-dev"
