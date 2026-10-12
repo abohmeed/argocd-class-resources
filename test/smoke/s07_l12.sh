@@ -76,9 +76,10 @@ subjects:
 roleRef: {kind: Role, name: ${SA}, apiGroup: rbac.authorization.k8s.io}
 EOF
 
-can_delete="$(kubectl auth can-i delete pods --namespace "${NS}" --as="system:serviceaccount:${NS}:${SA}")"
-can_logs="$(kubectl auth can-i get pods --subresource=log --namespace "${NS}" --as="system:serviceaccount:${NS}:${SA}")"
-can_update="$(kubectl auth can-i update deployments --namespace "${NS}" --as="system:serviceaccount:${NS}:${SA}")"
+# can-i exits 1 for "no", which is an answer here, not an error: the answer is read from its output.
+can_delete="$(kubectl auth can-i delete pods --namespace "${NS}" --as="system:serviceaccount:${NS}:${SA}" || true)"
+can_logs="$(kubectl auth can-i get pods --subresource=log --namespace "${NS}" --as="system:serviceaccount:${NS}:${SA}" || true)"
+can_update="$(kubectl auth can-i update deployments --namespace "${NS}" --as="system:serviceaccount:${NS}:${SA}" || true)"
 if [ "${can_delete}" = "no" ] && [ "${can_logs}" = "no" ] && [ "${can_update}" = "yes" ]; then
   _pass "ServiceAccount's Kubernetes RBAC is exactly as scoped: no pod delete, no pod logs, yes deployment update"
 else
