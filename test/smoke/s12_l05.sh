@@ -19,7 +19,24 @@ tier cluster
 argocd_cli_ready
 
 backup="$(mktemp -u)"
-trap 'rm -f "${backup}"' EXIT
+PROBE_APP="s12l05-probe"
+cleanup() {
+  rm -f "${backup}"
+  kubectl delete application "${PROBE_APP}" -n argocd --wait=false >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+# The export holds Applications only if there are some: an empty namespace would fail the positive check for a
+# reason that has nothing to do with the lesson. One scratch Application is enough, and it is removed on exit.
+kubectl apply -f - >/dev/null <<EOF_APP
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: ${PROBE_APP}, namespace: argocd}
+spec:
+  project: default
+  source: {repoURL: "https://github.com/abohmeed/argocd-class-resources.git", targetRevision: main, path: apps/storefront/base}
+  destination: {server: "https://kubernetes.default.svc", namespace: s12l05-probe}
+EOF_APP
 
 step "take a real export from the live cluster"
 if argocd admin export -o "${backup}" >/dev/null 2>&1; then
