@@ -44,7 +44,7 @@ spec:
   project: default
   source:
     repoURL: "${REPO}"
-    targetRevision: main
+    targetRevision: baseline/before-rollouts
     # base, NOT overlays/prod: the prod overlay pins its own namespace, and a manifest's own
     # namespace wins over destination.namespace, so this probe would silently land in the real
     # storefront-prod namespace the lesson builds. base pins none, so

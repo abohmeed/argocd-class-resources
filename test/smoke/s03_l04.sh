@@ -69,7 +69,7 @@ spec:
   project: default
   # source is a placeholder, never synced without --local below (base, so it carries no
   # namespace opinion of its own even inert: overlays pin their own namespace).
-  source: {repoURL: "https://github.com/abohmeed/argocd-class-resources.git", targetRevision: main, path: apps/storefront/base}
+  source: {repoURL: "https://github.com/abohmeed/argocd-class-resources.git", targetRevision: baseline/before-rollouts, path: apps/storefront/base}
   destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
   syncPolicy: {}
 EOF

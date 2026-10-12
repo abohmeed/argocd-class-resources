@@ -62,7 +62,7 @@ spec:
   # base, NOT overlays/dev: the dev overlay pins its own namespace, and a manifest's own
   # namespace wins over destination.namespace, so this probe would silently land in the real,
   # shared storefront-dev namespace. base pins none, so destination.namespace applies cleanly.
-  source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/base}
+  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/storefront/base}
   destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
   syncPolicy:
 ${automated}
