@@ -5,10 +5,6 @@
 # is a test harness nobody fixes when it goes red.
 
 set -euo pipefail
-# A script that dies under set -e prints nothing about why. Name the command that failed, so a silent
-# FAIL says where it stopped (errtrace makes the trap fire inside functions too).
-set -E
-trap 'printf "  \033[31mFAIL\033[0m stopped at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck disable=SC1091
