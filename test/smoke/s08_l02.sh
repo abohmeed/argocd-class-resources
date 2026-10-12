@@ -53,7 +53,7 @@ spec:
       project: default
       source:
         repoURL: https://github.com/abohmeed/argocd-class-resources.git
-        targetRevision: main
+        targetRevision: baseline/before-rollouts
         path: 'apps/storefront/overlays/{{.name}}'
       destination:
         server: https://kubernetes.default.svc
@@ -94,7 +94,7 @@ spec:
       project: default
       source:
         repoURL: https://github.com/abohmeed/argocd-class-resources.git
-        targetRevision: main
+        targetRevision: baseline/before-rollouts
         path: 'apps/storefront/overlays/{{.name}}'
       destination:
         server: https://kubernetes.default.svc

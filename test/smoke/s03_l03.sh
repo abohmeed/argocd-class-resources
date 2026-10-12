@@ -49,7 +49,7 @@ spec:
   project: default
   source:
     repoURL: "${REPO}"
-    targetRevision: main
+    targetRevision: baseline/before-rollouts
     # base, NOT overlays/dev: the dev overlay pins its own namespace, and a manifest's own
     # namespace wins over destination.namespace, so this probe would silently land in the real,
     # shared storefront-dev namespace. base pins none, so destination.namespace applies cleanly.
