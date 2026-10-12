@@ -8,3 +8,4 @@ resources:
   - service.yaml
   - sealedsecret.yaml
   - migrate-job.yaml
+  - migrate2-job.yaml
