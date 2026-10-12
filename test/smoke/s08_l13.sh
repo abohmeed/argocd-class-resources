@@ -26,7 +26,12 @@ cleanup() {
 trap cleanup EXIT
 
 base_appset() {
-  local preserve="$1"
+  local preserve="$1" sync_block=""
+  # The syncPolicy block is built here, not inside the heredoc: a brace inside ${var:+...} ends the expansion early.
+  if [ -n "${preserve}" ]; then
+    sync_block="  syncPolicy:
+    preserveResourcesOnDeletion: true"
+  fi
   cat <<EOF
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
@@ -34,7 +39,7 @@ metadata: {name: ${APPSET}, namespace: argocd}
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
-  ${preserve:+syncPolicy: {preserveResourcesOnDeletion: true}}
+${sync_block}
   generators:
     - list:
         elements:
