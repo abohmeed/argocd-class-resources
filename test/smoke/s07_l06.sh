@@ -118,24 +118,21 @@ kubectl patch configmap argocd-cm -n argocd --type merge -p \
   "{\"data\":{\"accounts.${ACCOUNT}\":\"login\"}}" >/dev/null
 
 step "reach argocd-server directly and log in as admin first, to set the throwaway account's password"
-kubectl -n argocd port-forward svc/argocd-server "${PORT}:443" >/tmp/s07l06-portforward.log 2>&1 &
-PF_PID=$!
 up="no"
-# S02-L08 set server.insecure (TLS ends at the Gateway), so argocd-server speaks plain HTTP on this port.
-# Follow the server's own mode rather than assuming TLS.
-insecure="$(kubectl -n argocd get cm argocd-cmd-params-cm -o jsonpath='{.data.server\.insecure}' 2>/dev/null || true)"
-if [ "${insecure}" = "true" ]; then SCHEME=http; LOGIN_TLS="--plaintext"; else SCHEME=https; LOGIN_TLS="--insecure"; fi
-for _ in $(seq 1 20); do curl -sk "${SCHEME}://localhost:${PORT}/healthz" >/dev/null 2>&1 && { up="yes"; break; }; sleep 1; done
-[ "${up}" = "yes" ] || _fail "argocd-server never answered on the port-forward"
+# The lesson logs in through argocd.local (Do.md, S02-L08 step 12): Traefik terminates TLS on 443 with a
+# self-signed certificate, and argocd-server behind it runs insecure.
+SCHEME=https; LOGIN_TLS="--insecure"
+for _ in $(seq 1 20); do curl -sk "${SCHEME}://argocd.local/healthz" >/dev/null 2>&1 && { up="yes"; break; }; sleep 1; done
+[ "${up}" = "yes" ] || _fail "argocd-server never answered through argocd.local"
 ADMIN_PW="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 --decode)"
 [ -n "${ADMIN_PW}" ] || _fail "no argocd-initial-admin-secret on this cluster"
-argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
+argocd login argocd.local ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 argocd account update-password --account "${ACCOUNT}" --new-password "${PASSWORD}" \
   --current-password "${ADMIN_PW}" --grpc-web >/dev/null
 wait_for_sync "${APP}" 180
 
 step "no policy.default at all: the unmapped account gets NO access, not read-only: a default worth checking rather than assuming"
-argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
+argocd login argocd.local ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
 if argocd app get "${APP}" --grpc-web >/dev/null 2>&1; then
   _fail "an account with no g-line and no policy.default could still read ${APP}: Argo CD's documented 'unset = no access' default does not hold"
 else
@@ -143,10 +140,10 @@ else
 fi
 
 step "set policy.default: role:readonly: now read works, create still does not"
-argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
+argocd login argocd.local ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p '{"data":{"policy.default":"role:readonly"}}' >/dev/null
 sleep 5
-argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
+argocd login argocd.local ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
 if argocd app get "${APP}" --grpc-web >/dev/null 2>&1; then
   _pass "policy.default: role:readonly: the account can now read ${APP}"
 else
@@ -161,11 +158,11 @@ else
 fi
 
 step "grant one narrow p+g line pair: create on this project only: create now works, delete still does not"
-argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
+argocd login argocd.local ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
   "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, create, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
 sleep 5
-argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
+argocd login argocd.local ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
 if argocd app create "${APP2}" --repo "${REPO}" --path apps/storefront/manifests \
      --dest-server https://kubernetes.default.svc --dest-namespace "${NS}" --project "${PROJ}" \
      --grpc-web >/dev/null 2>&1; then

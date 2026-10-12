@@ -120,18 +120,15 @@ POD_NAME="$(kubectl get pods -n "${NS}" -o jsonpath='{.items[0].metadata.name}' 
 [ -n "${POD_NAME}" ] || _fail "no Pod found in ${NS} after a reported sync"
 
 step "reach argocd-server as admin: an account whose OWN Argo CD RBAC has no reason to be denied logs or delete"
-kubectl -n argocd port-forward svc/argocd-server "${PORT}:443" >/tmp/s07l12-portforward.log 2>&1 &
-PF_PID=$!
 up="no"
-# S02-L08 set server.insecure (TLS ends at the Gateway), so argocd-server speaks plain HTTP on this port.
-# Follow the server's own mode rather than assuming TLS.
-insecure="$(kubectl -n argocd get cm argocd-cmd-params-cm -o jsonpath='{.data.server\.insecure}' 2>/dev/null || true)"
-if [ "${insecure}" = "true" ]; then SCHEME=http; LOGIN_TLS="--plaintext"; else SCHEME=https; LOGIN_TLS="--insecure"; fi
-for _ in $(seq 1 20); do curl -sk "${SCHEME}://localhost:${PORT}/healthz" >/dev/null 2>&1 && { up="yes"; break; }; sleep 1; done
-[ "${up}" = "yes" ] || _fail "argocd-server never answered on the port-forward"
+# The lesson logs in through argocd.local (Do.md, S02-L08 step 12): Traefik terminates TLS on 443 with a
+# self-signed certificate, and argocd-server behind it runs insecure.
+SCHEME=https; LOGIN_TLS="--insecure"
+for _ in $(seq 1 20); do curl -sk "${SCHEME}://argocd.local/healthz" >/dev/null 2>&1 && { up="yes"; break; }; sleep 1; done
+[ "${up}" = "yes" ] || _fail "argocd-server never answered through argocd.local"
 ADMIN_PW="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 --decode)"
 [ -n "${ADMIN_PW}" ] || _fail "no argocd-initial-admin-secret on this cluster"
-argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
+argocd login argocd.local ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 
 step "admin's own logs read is refused: blocked underneath by the impersonated SA's Kubernetes RBAC, not by policy.csv"
 out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)" && rc=0 || rc=$?
