@@ -31,8 +31,8 @@ fi
 
 step "setting both knobs is accepted by the live cluster and reflected back"
 kubectl -n argocd patch cm argocd-cm --type merge -p '{"data":{"timeout.reconciliation":"90s","timeout.reconciliation.jitter":"30s"}}' >/dev/null
-kubectl -n argocd rollout restart deploy argocd-application-controller >/dev/null
-kubectl -n argocd rollout status deploy argocd-application-controller --timeout=120s >/dev/null \
+kubectl -n argocd rollout restart statefulset argocd-application-controller >/dev/null
+kubectl -n argocd rollout status statefulset argocd-application-controller --timeout=120s >/dev/null \
   || _fail "argocd-application-controller did not roll out after the reconciliation-timeout change"
 
 got_timeout="$(kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.timeout\.reconciliation}')"

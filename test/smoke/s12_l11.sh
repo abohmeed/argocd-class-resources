@@ -29,7 +29,7 @@ cleanup() {
     kubectl -n argocd patch deploy argocd-repo-server --type=json \
       -p="[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"${orig_mem}\"}]" >/dev/null 2>&1 || true
   fi
-  kubectl -n argocd rollout restart deploy argocd-application-controller argocd-server argocd-repo-server >/dev/null 2>&1 || true
+  kubectl -n argocd rollout restart statefulset argocd-application-controller; kubectl -n argocd rollout restart deploy argocd-server argocd-repo-server >/dev/null 2>&1 || true
   kubectl delete application "${APP}" -n argocd --wait=false >/dev/null 2>&1 || true
   kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
 }
@@ -66,8 +66,8 @@ data:
         hs.message = "always degraded, on purpose"
         return hs
 ' >/dev/null
-kubectl -n argocd rollout restart deploy argocd-application-controller >/dev/null
-kubectl -n argocd rollout status deploy argocd-application-controller --timeout=120s >/dev/null
+kubectl -n argocd rollout restart statefulset argocd-application-controller >/dev/null
+kubectl -n argocd rollout status statefulset argocd-application-controller --timeout=120s >/dev/null
 
 deadline=$(( $(date +%s) + 90 ))
 health=""
@@ -87,8 +87,8 @@ step "removing the lying customization flips it back to Healthy without touching
 kubectl -n argocd patch cm argocd-cm --type json \
   -p '[{"op":"remove","path":"/data/resource.customizations"}]' >/dev/null
 orig_cm=""
-kubectl -n argocd rollout restart deploy argocd-application-controller >/dev/null
-kubectl -n argocd rollout status deploy argocd-application-controller --timeout=120s >/dev/null
+kubectl -n argocd rollout restart statefulset argocd-application-controller >/dev/null
+kubectl -n argocd rollout status statefulset argocd-application-controller --timeout=120s >/dev/null
 wait_for_sync "${APP}" 120
 
 step "breaking only Argo CD's side of the webhook secret makes delivery silently stop, with nothing to see on the Argo CD side either"
