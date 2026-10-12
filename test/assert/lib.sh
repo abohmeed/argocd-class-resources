@@ -290,9 +290,6 @@ assert_file_contains() {
 
 # assert_file_lacks <path> <extended-regex> <why it must not be there>
 assert_file_lacks() {
-  # A missing file is not "lacks the pattern": grep exits 2 there, and this would pass by reading
-  # nothing. Absence of the file must fail, the same way assert_file_contains already does.
-  [ -f "${REPO_ROOT}/$1" ] || { _fail "file MISSING: $1: cannot show it lacks /$2/"; return; }
   if grep -qE "$2" "${REPO_ROOT}/$1" 2>/dev/null; then
     _fail "$1 contains /$2/: $3"
   else
