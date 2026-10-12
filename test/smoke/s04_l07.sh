@@ -44,7 +44,7 @@ spec:
     targetRevision: baseline/before-rollouts
     path: charts/storefront
     helm:
-      valueFiles: ["values/storefront/values-prod.yaml"]
+      valueFiles: ["values-prod.yaml"]
   destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
   syncPolicy: {}
 APPEOF
@@ -69,7 +69,7 @@ spec:
       targetRevision: baseline/before-rollouts
       path: charts/storefront
       helm:
-        valueFiles: ["\$values/values/storefront/values-prod.yaml"]
+        valueFiles: ["\$values/values-prod.yaml"]
     - repoURL: "${VALUES_REPO}"
       targetRevision: HEAD
       ref: values
