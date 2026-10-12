@@ -9,6 +9,14 @@
 # metric. This drives the actual cluster rather than reading the metric names off a doc page.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
+# wait_for_forward <host:port/path>: a port-forward needs a moment to listen. Poll for an answer, up to 30 seconds,
+# instead of a fixed sleep that loses the race on a busy cluster.
+wait_for_forward() {
+  local i
+  for i in $(seq 1 30); do curl -s -m 2 "$1" >/dev/null 2>&1 && return 0; sleep 1; done
+  return 0
+}
+
 lesson S12-L01 "argocd_app_reconcile is a histogram, argocd_app_sync_total is a counter, and a dead endpoint refuses rather than reads zero"
 tier cluster
 
@@ -30,7 +38,7 @@ trap cleanup EXIT
 step "the application controller reports a histogram next to a counter, not two counters"
 kubectl port-forward svc/argocd-metrics -n argocd 18082:8082 >/dev/null 2>&1 &
 PF_METRICS_PID=$!
-sleep 2
+wait_for_forward localhost:18082/metrics
 metrics="$(curl -s localhost:18082/metrics)"
 if printf '%s' "${metrics}" | grep -q '^argocd_app_reconcile_bucket{'; then
   _pass "argocd_app_reconcile is a histogram (le= buckets present)"
@@ -48,7 +56,7 @@ PF_METRICS_PID=""
 step "cluster-cache staleness is exposed too: the third signal the lesson points at"
 kubectl port-forward svc/argocd-metrics -n argocd 18082:8082 >/dev/null 2>&1 &
 PF_METRICS_PID=$!
-sleep 2
+wait_for_forward localhost:18082/metrics
 if curl -s localhost:18082/metrics | grep -q '^argocd_cluster_cache_age_seconds'; then
   _pass "argocd_cluster_cache_age_seconds is exposed"
 else
@@ -67,7 +75,7 @@ fi
 step "repo-server pending-request pressure climbs under real rendering load"
 kubectl port-forward svc/argocd-repo-server -n argocd 18084:8084 >/dev/null 2>&1 &
 PF_REPO_PID=$!
-sleep 2
+wait_for_forward localhost:18084/metrics
 baseline="$(curl -s localhost:18084/metrics | grep '^argocd_repo_pending_request_total' | awk '{s+=$NF} END{print s+0}')"
 
 for i in $(seq -w 1 "${DUMMY_COUNT}"); do
