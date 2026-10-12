@@ -43,7 +43,7 @@ spec:
   generators:
     - git:
         repoURL: https://github.com/abohmeed/argocd-class-resources.git
-        revision: baseline/before-rollouts
+        revision: main
         directories:
           - path: apps/storefront/overlays/*
   template:
