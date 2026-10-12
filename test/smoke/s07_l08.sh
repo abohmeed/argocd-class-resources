@@ -72,7 +72,7 @@ wait_for_sync "${APP}" 180
 kubectl patch configmap argocd-cm -n argocd --type merge -p \
   "{\"data\":{\"accounts.${ACCOUNT}\":\"login\"}}" >/dev/null
 kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
-  "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, create, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete/*, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
+  "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, get, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, create, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete/*, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
 
 step "reach argocd-server and set the account's password"
 up="no"
@@ -99,7 +99,7 @@ fi
 step "add the logs/get policy line: the same command now returns real output"
 argocd login argocd.local ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
-  "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, create, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, logs, get, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
+  "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, get, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, create, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, logs, get, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
 sleep 5
 argocd login argocd.local ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
 out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)" && rc=0 || rc=$?

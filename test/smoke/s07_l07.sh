@@ -77,7 +77,7 @@ _pass "target Pod is ${POD_NAME}"
 kubectl patch configmap argocd-cm -n argocd --type merge -p \
   "{\"data\":{\"accounts.${ACCOUNT}\":\"login\"}}" >/dev/null
 kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
-  "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
+  "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, get, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
 
 step "reach argocd-server and set the account's password"
 up="no"
@@ -111,7 +111,7 @@ fi
 step "add the explicit update/* and delete/* wildcard actions: the same delete now succeeds"
 argocd login argocd.local ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
-  "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete/*, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
+  "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, get, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete/*, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
 sleep 5
 argocd login argocd.local ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
 if argocd app delete-resource "${APP}" --kind Pod --resource-name "${POD_NAME}" --namespace "${NS}" --grpc-web >/dev/null 2>&1; then
