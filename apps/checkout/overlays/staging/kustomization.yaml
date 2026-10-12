@@ -25,6 +25,62 @@ patches:
     target:
       kind: SealedSecret
       name: checkout-db
+  # Capstone team fleet only (base keeps the PreSync migrations, Section 06). The two migrations
+  # become Sync-phase Jobs in wave order: the SQL ConfigMap is in place before its Job, migrate
+  # runs at wave 0 after Postgres (wave -1), migrate2 at wave 1, and the API (wave 2) never starts
+  # before the schema. Names are unchanged. A failed migration retries 3 times, then the sync fails.
+  - target:
+      kind: ConfigMap
+      name: checkout-migrate-sql
+    patch: |-
+      - op: remove
+        path: /metadata/annotations/argocd.argoproj.io~1hook
+  - target:
+      kind: Job
+      name: checkout-migrate
+    patch: |-
+      - op: remove
+        path: /metadata/annotations/argocd.argoproj.io~1hook
+      - op: remove
+        path: /metadata/annotations/argocd.argoproj.io~1hook-delete-policy
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "0"
+      - op: replace
+        path: /spec/backoffLimit
+        value: 3
+  - target:
+      kind: ConfigMap
+      name: checkout-migrate2-sql
+    patch: |-
+      - op: remove
+        path: /metadata/annotations/argocd.argoproj.io~1hook
+      - op: replace
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "0"
+  - target:
+      kind: Job
+      name: checkout-migrate2
+    patch: |-
+      - op: remove
+        path: /metadata/annotations/argocd.argoproj.io~1hook
+      - op: remove
+        path: /metadata/annotations/argocd.argoproj.io~1hook-delete-policy
+      - op: replace
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "1"
+      - op: replace
+        path: /spec/backoffLimit
+        value: 3
+  # The API starts after both migrations (waves 0 and 1) are Completed.
+  - target:
+      kind: Deployment
+      name: checkout
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "2"
   # A rollout that cannot finish (for example, a missing credential) is reported as failed after
   # 20 seconds instead of the default 10 minutes, so the Application turns Degraded quickly.
   - target:
