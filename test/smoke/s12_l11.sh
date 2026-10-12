@@ -56,16 +56,19 @@ had_customizations="$(kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.res
 if [ -n "${had_customizations}" ]; then
   _fail "argocd-cm already carries a resource.customizations block on this cluster: refusing to overwrite an existing customization; clear it by hand before running this script"
 fi
-kubectl -n argocd patch cm argocd-cm --type merge -p '
-data:
-  resource.customizations: |
-    argoproj.io/Rollout:
-      health.lua: |
-        hs = {}
-        hs.status = "Degraded"
-        hs.message = "always degraded, on purpose"
-        return hs
-' >/dev/null
+# The override is a YAML document inside a ConfigMap value. A merge patch must be JSON, so the YAML is built here and
+# encoded with jq (a YAML payload handed to kubectl patch is refused, and the refusal was being discarded).
+custom_lua="$(cat <<'LUA'
+argoproj.io/Rollout:
+  health.lua: |
+    hs = {}
+    hs.status = "Degraded"
+    hs.message = "always degraded, on purpose"
+    return hs
+LUA
+)"
+kubectl -n argocd patch cm argocd-cm --type merge \
+  -p "$(jq -n --arg v "${custom_lua}" '{data: {"resource.customizations": $v}}')" >/dev/null
 kubectl -n argocd rollout restart statefulset argocd-application-controller >/dev/null
 kubectl -n argocd rollout status statefulset argocd-application-controller --timeout=120s >/dev/null
 
