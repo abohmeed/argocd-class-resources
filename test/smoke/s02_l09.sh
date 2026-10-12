@@ -71,4 +71,17 @@ else
   _pass "the old bootstrap password no longer authenticates: the rotation is real, not cosmetic"
 fi
 
+# Teardown for the suite, not a lesson step: the random password above exists only in this script, and every
+# later lesson that logs in as admin (through argocd.local, with the bootstrap secret the lesson teaches) would
+# fail on it. Set the bootstrap value back, as the admin account's own update-password does, and check it logs in.
+step "restore the bootstrap password, so the admin logins later lessons use still work on this cluster"
+argocd login argocd.local --insecure --username admin --password "${new_pw}" >/dev/null 2>&1 || true
+if argocd account update-password --insecure --server argocd.local \
+    --current-password "${new_pw}" --new-password "${initial_pw}" >/dev/null 2>&1 \
+   && argocd login argocd.local --insecure --username admin --password "${initial_pw}" >/dev/null 2>&1; then
+  _pass "the bootstrap password is back in place for the later sections"
+else
+  _fail "could not restore the bootstrap password: every later admin login on this cluster will fail"
+fi
+
 smoke_done
