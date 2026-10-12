@@ -67,6 +67,8 @@ groups:
         annotations:
           summary: "Argo CD repo-server pending-request count is climbing"
 EOF
+# The container reads the file as its own user: mktemp's 0600 mode is not readable from inside it.
+chmod 644 "${tmpfile}"
 if command -v promtool >/dev/null 2>&1; then
   if promtool check rules "${tmpfile}" >/dev/null 2>&1; then
     _pass "both alert rules parse under promtool"
