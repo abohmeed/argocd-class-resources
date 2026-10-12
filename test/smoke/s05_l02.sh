@@ -30,8 +30,11 @@ cleanup() {
 trap cleanup EXIT
 
 step "the Sealed Secrets controller is installed, at the pinned version and the CURRENT bitnami org"
-kubectl get pods -n kube-system -l app.kubernetes.io/name=sealed-secrets >/dev/null 2>&1 \
-  || kubectl apply -f "https://github.com/bitnami/sealed-secrets/releases/download/${SEALED_SECRETS_VERSION}/controller.yaml" >/dev/null
+# `kubectl get` exits 0 when nothing matches, so the install is decided by whether the Deployment exists, not by
+# the exit code of a label query: on a fresh cluster the old check skipped the install and then waited forever.
+if [ -z "$(kubectl get deployment sealed-secrets-controller -n kube-system -o name 2>/dev/null)" ]; then
+  kubectl apply -f "https://github.com/bitnami/sealed-secrets/releases/download/${SEALED_SECRETS_VERSION}/controller.yaml" >/dev/null
+fi
 kubectl rollout status deployment/sealed-secrets-controller -n kube-system --timeout=120s >/dev/null 2>&1 \
   || _fail "sealed-secrets controller did not become ready"
 image="$(kubectl get deployment sealed-secrets-controller -n kube-system -o jsonpath='{.spec.template.spec.containers[0].image}')"
