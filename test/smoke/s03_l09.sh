@@ -58,7 +58,7 @@ spec:
   project: default
   # source is a placeholder never synced without --local below (base, so it carries no
   # namespace opinion even inert).
-  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/storefront/base}
+  source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/base}
   destination: {server: "https://kubernetes.default.svc", namespace: argocd}
   syncPolicy: {}
 EOF
@@ -74,7 +74,7 @@ spec:
   # base, NOT overlays/dev: the dev overlay pins its own namespace, and a manifest's own
   # namespace wins over destination.namespace, so this child would silently land in the real
   # storefront-dev namespace other lessons own. base pins none, so destination.namespace applies.
-  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/storefront/base}
+  source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/base}
   destination: {server: "https://kubernetes.default.svc", namespace: ${NS_DEV}}
   syncPolicy:
     automated: {selfHeal: true, prune: true}
@@ -89,7 +89,7 @@ spec:
   # base, NOT overlays/dev: the dev overlay pins its own namespace, and a manifest's own
   # namespace wins over destination.namespace, so this child would silently land in the real
   # payments-dev namespace. base pins none, so destination.namespace applies cleanly.
-  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/payments/base}
+  source: {repoURL: "${REPO}", targetRevision: main, path: apps/payments/base}
   destination: {server: "https://kubernetes.default.svc", namespace: ${NS_PAY}}
   syncPolicy:
     automated: {selfHeal: true, prune: true}

@@ -37,7 +37,7 @@ kind: Application
 metadata: {name: ${APP}, namespace: argocd}
 spec:
   project: default
-  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: charts/storefront}
+  source: {repoURL: "${REPO}", targetRevision: main, path: charts/storefront}
   destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
   syncPolicy:
     automated: {}

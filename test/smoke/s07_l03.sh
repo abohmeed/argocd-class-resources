@@ -98,7 +98,7 @@ kind: Application
 metadata: {name: ${APP_CR}, namespace: argocd}
 spec:
   project: ${PROJ}
-  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/checkout/base}
+  source: {repoURL: "${REPO}", targetRevision: main, path: apps/checkout/base}
   destination: {server: "https://kubernetes.default.svc", namespace: "${NS}"}
   syncPolicy: {syncOptions: ["CreateNamespace=true"]}
 EOF
@@ -126,7 +126,7 @@ kind: Application
 metadata: {name: ${APP_RQ_BEFORE}, namespace: argocd}
 spec:
   project: ${PROJ}
-  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/checkout/base}
+  source: {repoURL: "${REPO}", targetRevision: main, path: apps/checkout/base}
   destination: {server: "https://kubernetes.default.svc", namespace: "${NS}"}
   syncPolicy: {syncOptions: ["CreateNamespace=true"]}
 EOF
@@ -147,7 +147,7 @@ kind: Application
 metadata: {name: ${APP_RQ_AFTER}, namespace: argocd}
 spec:
   project: ${PROJ}
-  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/checkout/base}
+  source: {repoURL: "${REPO}", targetRevision: main, path: apps/checkout/base}
   destination: {server: "https://kubernetes.default.svc", namespace: "${NS}"}
 EOF
 argocd app sync "${APP_RQ_AFTER}" --local "${TMPDIR}/quota" >/dev/null 2>&1 || true

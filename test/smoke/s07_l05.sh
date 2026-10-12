@@ -56,7 +56,7 @@ kind: Application
 metadata: {name: ${APP_IN}, namespace: argocd}
 spec:
   project: ${PROJ}
-  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/storefront/manifests}
+  source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/manifests}
   destination: {server: "https://kubernetes.default.svc", namespace: "${NS}"}
   syncPolicy: {syncOptions: ["CreateNamespace=true"]}
 EOF
@@ -66,7 +66,7 @@ kind: Application
 metadata: {name: ${APP_OUT}, namespace: argocd}
 spec:
   project: default
-  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/storefront/manifests}
+  source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/manifests}
   destination: {server: "https://kubernetes.default.svc", namespace: "${NS_OUT}"}
   syncPolicy: {syncOptions: ["CreateNamespace=true"]}
 EOF

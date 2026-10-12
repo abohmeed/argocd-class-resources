@@ -54,7 +54,7 @@ spec:
       project: default
       source:
         repoURL: https://github.com/abohmeed/argocd-class-resources.git
-        targetRevision: baseline/before-rollouts
+        targetRevision: main
         path: '{{.path.path}}'
       destination:
         server: https://kubernetes.default.svc

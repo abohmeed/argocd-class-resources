@@ -35,7 +35,7 @@ spec:
   # already there, and sits OutOfSync forever. base pins no namespace, so the destination
   # applies and this script gets a namespace to itself.
   # (No backticks in here: this is an unquoted heredoc, so backticks are command substitution.)
-  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/storefront/base}
+  source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/base}
   destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
   syncPolicy:
     automated: {}

@@ -53,7 +53,7 @@ spec:
   # namespace set in the manifest wins over destination.namespace, so this probe would silently
   # land in the real, shared storefront-dev namespace instead of its own isolated one. base pins
   # no namespace, so destination.namespace below applies cleanly.
-  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/storefront/base}
+  source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/base}
   destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
   syncPolicy:
     syncOptions: ["CreateNamespace=true"]
