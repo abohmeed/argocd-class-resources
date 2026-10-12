@@ -84,7 +84,7 @@ wait_for_sync "${APP}" 180
 step "a repeatedly re-applied label IS reverted by selfHeal alone: the flap this lesson opens on"
 (
   while true; do
-    kubectl -n "${NS}" patch deployment storefront --type=json \
+    kubectl -n "${NS}" patch rollout storefront --type=json \
       -p='[{"op":"add","path":"/spec/template/metadata/labels/injected-by","value":"webhook-sim"}]' \
       >/dev/null 2>&1
     sleep 4
@@ -95,7 +95,7 @@ sleep 45
 kill "${FLAP_PID}" >/dev/null 2>&1 || true
 FLAP_PID=""
 sleep 20
-still_present="$(kubectl get deployment storefront -n "${NS}" -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
+still_present="$(kubectl get rollout storefront -n "${NS}" -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
 if [ -z "${still_present}" ]; then
   _pass "with plain selfHeal and no ignoreDifferences, the flapped label was reverted away: reproduces the lesson's opener"
 else
@@ -106,8 +106,8 @@ step "ignoreDifferences + RespectIgnoreDifferences stops selfHeal from stripping
 kubectl -n argocd patch application "${APP}" --type merge -p '
 spec:
   ignoreDifferences:
-  - group: apps
-    kind: Deployment
+  - group: argoproj.io
+    kind: Rollout
     jsonPointers:
     - /spec/template/metadata/labels/injected-by
   syncPolicy:
@@ -117,12 +117,12 @@ spec:
     - RespectIgnoreDifferences=true
 ' >/dev/null
 
-kubectl -n "${NS}" patch deployment storefront --type=json \
+kubectl -n "${NS}" patch rollout storefront --type=json \
   -p='[{"op":"add","path":"/spec/template/metadata/labels/injected-by","value":"webhook-sim"}]' >/dev/null
 argocd app sync "${APP}" >/dev/null 2>&1 || kubectl -n argocd annotate application "${APP}" argocd.argoproj.io/refresh=hard --overwrite >/dev/null
 sleep 30
 
-survived="$(kubectl get deployment storefront -n "${NS}" -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
+survived="$(kubectl get rollout storefront -n "${NS}" -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
 if [ "${survived}" = "webhook-sim" ]; then
   _pass "with ignoreDifferences AND RespectIgnoreDifferences, a sync no longer strips the field back out"
 else
