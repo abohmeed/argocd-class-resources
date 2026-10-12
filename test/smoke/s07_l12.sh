@@ -113,7 +113,7 @@ spec:
   project: ${PROJ}
   source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/storefront/manifests}
   destination: {server: "https://kubernetes.default.svc", namespace: "${NS}"}
-  syncPolicy: {automated: {}, syncOptions: ["CreateNamespace=true"]}
+  syncPolicy: {automated: {}, syncOptions: []}
 EOF
 wait_for_sync "${APP}" 180
 POD_NAME="$(kubectl get pods -n "${NS}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"

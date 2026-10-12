@@ -65,6 +65,9 @@ cleanup() {
   kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+# The probe projects whitelist no cluster-scoped kinds, so a sync cannot create its namespace (CreateNamespace
+# adds a Namespace object the project refuses). The namespaces are created here, as an operator would.
+kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 if ! command -v argocd >/dev/null 2>&1; then
   _fail "argocd CLI not on PATH: policy.csv/policy.default are only enforced behind the real API"
@@ -109,7 +112,7 @@ spec:
   project: ${PROJ}
   source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/storefront/manifests}
   destination: {server: "https://kubernetes.default.svc", namespace: "${NS}"}
-  syncPolicy: {automated: {}, syncOptions: ["CreateNamespace=true"]}
+  syncPolicy: {automated: {}, syncOptions: []}
 EOF
 kubectl patch configmap argocd-cm -n argocd --type merge -p \
   "{\"data\":{\"accounts.${ACCOUNT}\":\"login\"}}" >/dev/null

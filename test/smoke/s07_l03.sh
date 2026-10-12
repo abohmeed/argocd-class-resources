@@ -51,6 +51,9 @@ cleanup() {
   [ -n "${TMPDIR}" ] && rm -rf "${TMPDIR}"
 }
 trap cleanup EXIT
+# The probe projects whitelist no cluster-scoped kinds, so a sync cannot create its namespace (CreateNamespace
+# adds a Namespace object the project refuses). The namespaces are created here, as an operator would.
+kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 if ! command -v argocd >/dev/null 2>&1; then
   _fail "argocd CLI not on PATH: this claim needs 'argocd app sync --local', which has no kubectl-only equivalent"
@@ -100,7 +103,7 @@ spec:
   project: ${PROJ}
   source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/checkout/base}
   destination: {server: "https://kubernetes.default.svc", namespace: "${NS}"}
-  syncPolicy: {syncOptions: ["CreateNamespace=true"]}
+  syncPolicy: {syncOptions: []}
 EOF
 argocd app sync "${APP_CR}" --local "${TMPDIR}/clusterrole" >/dev/null 2>&1 || true
 if kubectl get clusterrole "${CR_NAME}" >/dev/null 2>&1; then
@@ -128,7 +131,7 @@ spec:
   project: ${PROJ}
   source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/checkout/base}
   destination: {server: "https://kubernetes.default.svc", namespace: "${NS}"}
-  syncPolicy: {syncOptions: ["CreateNamespace=true"]}
+  syncPolicy: {syncOptions: []}
 EOF
 argocd app sync "${APP_RQ_BEFORE}" --local "${TMPDIR}/quota" >/dev/null 2>&1
 if kubectl get resourcequota "${RQ_NAME}" -n "${NS}" >/dev/null 2>&1; then

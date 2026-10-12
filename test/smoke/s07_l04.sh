@@ -36,6 +36,9 @@ cleanup() {
   kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+# The probe projects whitelist no cluster-scoped kinds, so a sync cannot create its namespace (CreateNamespace
+# adds a Namespace object the project refuses). The namespaces are created here, as an operator would.
+kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 step "fence a throwaway project with an always-open deny window already in place"
 cat <<EOF | kubectl apply -f - >/dev/null
@@ -65,7 +68,7 @@ spec:
   destination: {server: "https://kubernetes.default.svc", namespace: "${NS}"}
   syncPolicy:
     automated: {}
-    syncOptions: ["CreateNamespace=true"]
+    syncOptions: []
 EOF
 
 step "45 seconds is long enough for an unblocked sync elsewhere in this suite (s07_l01.sh, s07_l02.sh) to land: this one must not"

@@ -34,6 +34,10 @@ cleanup() {
   kubectl delete namespace "${NS}" "${NS_OUT}" --wait=false >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+# The probe projects whitelist no cluster-scoped kinds, so a sync cannot create its namespace (CreateNamespace
+# adds a Namespace object the project refuses). The namespaces are created here, as an operator would.
+kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl create namespace "${NS_OUT}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 if ! command -v argocd >/dev/null 2>&1; then
   _fail "argocd CLI not on PATH: project-role tokens and their enforcement only exist behind the real API, not kubectl"
@@ -58,7 +62,7 @@ spec:
   project: ${PROJ}
   source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/storefront/manifests}
   destination: {server: "https://kubernetes.default.svc", namespace: "${NS}"}
-  syncPolicy: {syncOptions: ["CreateNamespace=true"]}
+  syncPolicy: {syncOptions: []}
 EOF
 kubectl apply -f - <<EOF >/dev/null
 apiVersion: argoproj.io/v1alpha1
@@ -68,7 +72,7 @@ spec:
   project: default
   source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/storefront/manifests}
   destination: {server: "https://kubernetes.default.svc", namespace: "${NS_OUT}"}
-  syncPolicy: {syncOptions: ["CreateNamespace=true"]}
+  syncPolicy: {syncOptions: []}
 EOF
 
 step "reach argocd-server directly (no TLS gateway on a bare CI cluster)"
