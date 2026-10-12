@@ -75,7 +75,8 @@ argocd app sync "${APP}" >/dev/null 2>&1 || true
 deadline=$(( $(date +%s) + 90 ))
 pull_err=""
 while [ "$(date +%s)" -lt "${deadline}" ]; do
-  pull_err="$(kubectl get pods -n "${NS}" -o jsonpath='{range .items[*]}{.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}' 2>/dev/null | grep -E 'ErrImagePull|ImagePullBackOff' | head -1)"
+  # grep exits 1 while the pull has not failed yet: that is the wait, not an error (set -o pipefail would end the script).
+  pull_err="$(kubectl get pods -n "${NS}" -o jsonpath='{range .items[*]}{.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}' 2>/dev/null | grep -E 'ErrImagePull|ImagePullBackOff' | head -1 || true)"
   [ -n "${pull_err}" ] && break
   sleep 5
 done
