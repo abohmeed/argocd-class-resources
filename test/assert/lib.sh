@@ -18,11 +18,16 @@ source "${REPO_ROOT}/test/versions.env"
 # Argo Rollout there), and every lesson before Section 10 targets baseline/before-rollouts, where
 # storefront is still the plain Deployment those lessons teach. So the scripts for S01 to S09 check the
 # baseline tree, and S10 on checks main. The baseline tree is extracted once per commit, into a cache
-# directory, and REPO_ROOT points at it for that script only. CI fetches the branch in the workflow.
+# directory, and REPO_ROOT points at it for that script only. The workflow fetches the branch too, but a
+# checkout that lacks it (a fresh clone, or a workflow file that predates this line) fetches it here.
 BASELINE_REF="origin/baseline/before-rollouts"
 case "$(basename "${BASH_SOURCE[1]:-$0}")" in
   s0[1-9]_*)
     baseline_sha="$(git -C "${REPO_ROOT}" rev-parse --verify -q "${BASELINE_REF}^{commit}" 2>/dev/null || true)"
+    if [ -z "${baseline_sha}" ]; then
+      git -C "${REPO_ROOT}" fetch --no-tags --depth=1 origin "+refs/heads/baseline/before-rollouts:refs/remotes/origin/baseline/before-rollouts" >/dev/null 2>&1 || true
+      baseline_sha="$(git -C "${REPO_ROOT}" rev-parse --verify -q "${BASELINE_REF}^{commit}" 2>/dev/null || true)"
+    fi
     if [ -z "${baseline_sha}" ]; then
       printf '  \033[31mFAIL\033[0m %s is not fetched: the pre-Section-10 checks read it (CI fetches it in the workflow)\n' "${BASELINE_REF}" >&2
       exit 1
