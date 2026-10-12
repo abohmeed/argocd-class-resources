@@ -93,7 +93,8 @@ step "create an empty role, grant it get and then sync, and issue a token"
 argocd proj role create "${PROJ}" "${ROLE}" --grpc-web >/dev/null
 argocd proj role add-policy "${PROJ}" "${ROLE}" -a get -o '*' --grpc-web >/dev/null
 argocd proj role add-policy "${PROJ}" "${ROLE}" -a sync -o '*' --grpc-web >/dev/null
-TOKEN="$(argocd proj role create-token "${PROJ}" "${ROLE}" --grpc-web 2>/dev/null | tail -1 | tr -d '[:space:]')"
+# The CLI prints "  Token: <jwt>" on its own line after the ID and expiry lines: take the value after the label.
+TOKEN="$(argocd proj role create-token "${PROJ}" "${ROLE}" --grpc-web 2>/dev/null | awk '/Token:/{print $2}')"
 [ -n "${TOKEN}" ] || _fail "no token came back from 'argocd proj role create-token'"
 _pass "role ${ROLE} created with two policies (get, *) and (sync, *), and a token issued"
 
