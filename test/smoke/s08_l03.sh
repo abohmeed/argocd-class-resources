@@ -73,9 +73,9 @@ count="$(kubectl get applications -n argocd -l appset=${APPSET} --no-headers | w
 
 step "Step 5: hand-edit a label the controller never set, and watch it get reverted"
 kubectl label application payments-dev -n argocd "demo.northwind.io/manual-edit=true" --overwrite >/dev/null
-immediately="$(kubectl get application payments-dev -n argocd -o jsonpath='{.metadata.labels.demo\.northwind\.io/manual-edit}')"
-[ "${immediately}" = "true" ] && _pass "the manual label is present immediately after the edit" \
-  || _fail "the manual label did not stick immediately after 'kubectl label': cannot test the revert"
+# The edit itself is checked by `kubectl label` succeeding (set -e). The controller can revert a label it
+# does not own within moments of the edit, so reading it back here is racy and proves nothing: the claim
+# is the revert, and the loop below waits for it.
 
 reverted=no
 for _ in $(seq 1 24); do
