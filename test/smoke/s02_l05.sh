@@ -20,7 +20,7 @@ lesson S02-L05 "automated (with no selfHeal) detects a manual edit as OutOfSync 
 tier cluster
 
 APP="s02l05-probe"
-NS="storefront-dev"   # the lesson's own namespace: the overlay fixes it to storefront-dev, so the destination must be that
+NS="s02l05-probe"
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
 
 cleanup() {
@@ -30,9 +30,6 @@ cleanup() {
 trap cleanup EXIT
 
 step "register a bare 'automated: {}' Application against storefront's dev overlay"
-# The lesson creates the namespace by hand (S02-L05 Do.md) and the Application targets it. The overlay fixes
-# its namespace to storefront-dev, so the destination cannot be a probe namespace of its own.
-kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: argoproj.io/v1alpha1
 kind: Application
