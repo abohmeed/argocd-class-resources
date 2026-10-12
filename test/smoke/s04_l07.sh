@@ -41,7 +41,7 @@ spec:
   project: default
   source:
     repoURL: "${CHART_REPO}"
-    targetRevision: baseline/before-rollouts
+    targetRevision: main
     path: charts/storefront
     helm:
       valueFiles: ["values/storefront/values-prod.yaml"]
@@ -66,7 +66,7 @@ spec:
   destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
   sources:
     - repoURL: "${CHART_REPO}"
-      targetRevision: baseline/before-rollouts
+      targetRevision: main
       path: charts/storefront
       helm:
         valueFiles: ["\$values/values/storefront/values-prod.yaml"]
