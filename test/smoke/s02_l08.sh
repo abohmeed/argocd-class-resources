@@ -58,7 +58,9 @@ YAML
 
 listeners=""
 for _ in $(seq 1 24); do
-  listeners="$(kubectl get gateway traefik-gateway -n kube-system -o jsonpath='{range .spec.listeners[*]}{.name}:{.port}/{.protocol} {end}' 2>/dev/null)"
+  # The Gateway does not exist until k3s's helm-controller has re-run Traefik's chart, so the very first
+  # read finds nothing. That is the normal wait, not an error: `|| true` keeps set -e from ending the loop.
+  listeners="$(kubectl get gateway traefik-gateway -n kube-system -o jsonpath='{range .spec.listeners[*]}{.name}:{.port}/{.protocol} {end}' 2>/dev/null || true)"
   case "${listeners}" in *websecure:8443/HTTPS*) break ;; esac
   sleep 5
 done
