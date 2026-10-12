@@ -48,8 +48,14 @@ spec:
           image: ghcr.io/northwind/does-not-matter:1.0
           command: ["true"]
 EOF
-sleep 8
-pod_events="$(kubectl describe pod -n "${HOOK_NS}" -l job-name=stuck-hook 2>/dev/null | grep -A3 Events || true)"
+# The kubelet names the missing secret in the pod's Events once it has tried to pull (about 10 seconds in). Read the
+# whole Events section, and poll for it rather than sleeping a fixed time.
+pod_events=""
+for _ in $(seq 1 30); do
+  pod_events="$(kubectl describe pod -n "${HOOK_NS}" -l job-name=stuck-hook 2>/dev/null | sed -n '/^Events:/,$p' || true)"
+  printf '%s' "${pod_events}" | grep -qi 'registry-creds-that-do-not-exist' && break
+  sleep 2
+done
 if printf '%s' "${pod_events}" | grep -qi 'registry-creds-that-do-not-exist'; then
   _pass "the hook pod's own Events name the missing image-pull secret: diagnosable, not just hung"
 else
