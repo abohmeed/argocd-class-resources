@@ -34,10 +34,19 @@ poll_ready_replicas() {
   _fail "${name} never reached ${want} ready replicas within ${timeout}s (last: ${got:-?})"
 }
 
+# curl_in <service>: the body the service returns, read from the pod's log. Not `kubectl run -i`: attached
+# runs print kubectl's own banner and "pod deleted" lines into the output, so the comparison never matches.
 curl_in() {
-  local svc="$1"
-  kubectl run "curlcheck-${RANDOM}" --rm -i --restart=Never -n "${NS}" \
-    --image=curlimages/curl:8.11.0 -- curl -s --max-time 10 "http://${svc}" 2>/dev/null || true
+  local svc="$1" name="curlcheck-${RANDOM}" phase=""
+  kubectl run "${name}" -n "${NS}" --restart=Never --image=curlimages/curl:8.11.0 -- \
+    curl -s --max-time 10 "http://${svc}" >/dev/null 2>&1 || true
+  for _ in $(seq 1 60); do
+    phase="$(kubectl get pod "${name}" -n "${NS}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+    case "${phase}" in Succeeded|Failed) break ;; esac
+    sleep 1
+  done
+  kubectl logs "${name}" -n "${NS}" 2>/dev/null || true
+  kubectl delete pod "${name}" -n "${NS}" --wait=false >/dev/null 2>&1 || true
 }
 
 step "install Argo Rollouts ${ARGO_ROLLOUTS_VERSION} and the kubectl plugin (needed to promote/abort)"
