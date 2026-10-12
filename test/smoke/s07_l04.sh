@@ -94,6 +94,9 @@ fi
 
 step "remove the window, and the identical Application lands"
 kubectl patch appproject "${PROJ}" -n argocd --type merge -p '{"spec":{"syncWindows":null}}' >/dev/null
+# The controller re-evaluates an Application when it reconciles, and a window removed in the project does not
+# wake it: the next reconcile can be minutes away. A normal refresh is what an operator does here.
+kubectl -n argocd annotate application "${APP}" argocd.argoproj.io/refresh=normal --overwrite >/dev/null
 wait_for_sync "${APP}" 180
 if kubectl get deployment -n "${NS}" -o name 2>/dev/null | grep -q .; then
   _pass "Deployment landed once the deny window was removed: confirms the earlier absence was the window, not a broken Application"
