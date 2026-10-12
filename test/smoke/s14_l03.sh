@@ -29,7 +29,13 @@ assert_no_legacy_appset_templating
 
 step "the committed generator dry-runs without error against the live repo and cluster"
 if command -v argocd >/dev/null 2>&1; then
-  out="$(argocd appset generate applicationsets/teams-fleet.yaml 2>&1)" && rc=0 || rc=$?
+  # The CLI's --core mode reaches the repo-server through a port-forward it starts itself, which can refuse the
+  # first connection on a busy cluster. Retry the dry-run a few times; a real generator error fails every attempt.
+  for _attempt in 1 2 3; do
+    out="$(argocd appset generate applicationsets/teams-fleet.yaml 2>&1)" && rc=0 || rc=$?
+    [ "${rc}" -eq 0 ] && break
+    sleep 5
+  done
   # The Cluster generator half of this Matrix only yields rows once a cluster carries
   # tier: staging (Step 5/6 of the lesson): a matrix with an empty side
   # legitimately produces zero Applications. So this does not require a specific row count;

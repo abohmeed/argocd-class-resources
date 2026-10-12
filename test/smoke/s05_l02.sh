@@ -39,8 +39,8 @@ kubectl rollout status deployment/sealed-secrets-controller -n kube-system --tim
   || _fail "sealed-secrets controller did not become ready"
 image="$(kubectl get deployment sealed-secrets-controller -n kube-system -o jsonpath='{.spec.template.spec.containers[0].image}')"
 case "${image}" in
-  bitnami/sealed-secrets:*) _pass "controller image is ${image}: the current bitnami org, not the retired bitnami-labs" ;;
-  *) _fail "controller image is ${image}: expected bitnami/sealed-secrets:*; bitnami-labs is retired and the wrong org would 404 a student's pull" ;;
+  *bitnami/sealed-secrets-controller:*|*bitnami/sealed-secrets:*) _pass "controller image is ${image}: the current bitnami org, not the retired bitnami-labs" ;;
+  *) _fail "controller image is ${image}: expected the bitnami org (bitnami/sealed-secrets-controller:*); bitnami-labs is retired and the wrong org would 404 a student's pull" ;;
 esac
 
 step "seal a scratch credential, strict-scoped to namespace ${NS_A}, and confirm the cluster decrypts it back"
