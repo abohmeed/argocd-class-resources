@@ -42,7 +42,7 @@ curl_in() {
 
 step "install Argo Rollouts ${ARGO_ROLLOUTS_VERSION} and the kubectl plugin (needed to promote/abort)"
 kubectl create namespace argo-rollouts --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl apply --server-side -n argo-rollouts -f "https://github.com/argoproj/argo-rollouts/releases/download/${ARGO_ROLLOUTS_VERSION}/install.yaml" >/dev/null
+kubectl apply -n argo-rollouts -f "https://github.com/argoproj/argo-rollouts/releases/download/${ARGO_ROLLOUTS_VERSION}/install.yaml" >/dev/null
 wait_for_rollout "deployment/argo-rollouts" "argo-rollouts"
 OS=$(uname | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
