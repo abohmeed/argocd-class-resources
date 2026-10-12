@@ -117,7 +117,15 @@ while [ "$(date +%s)" -lt "${deadline}" ]; do
   [ "${drift_sync}" = "OutOfSync" ] && break
   sleep 5
 done
-drift_health="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
+# The extra Pod takes a few seconds to become Ready, and health reads Progressing until it does. The
+# lesson's claim is the settled state (OutOfSync AND Healthy), so wait for health to settle, not sample it once.
+drift_health=""
+deadline=$(( $(date +%s) + 90 ))
+while [ "$(date +%s)" -lt "${deadline}" ]; do
+  drift_health="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
+  [ "${drift_health}" = "Healthy" ] && break
+  sleep 3
+done
 if [ "${drift_sync}" = "OutOfSync" ] && [ "${drift_health}" = "Healthy" ]; then
   _pass "OutOfSync + Healthy: drift without breakage, the mirror image of the earlier case"
 else
