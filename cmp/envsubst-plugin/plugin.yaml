@@ -12,7 +12,7 @@ spec:
     command: ["sh", "-c"]
     args:
       - |
-        echo "Generating manifests..."
+        echo "Generating manifests..." >&2
         DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ) envsubst < deployment.yaml.tmpl > deployment.yaml
         cat deployment.yaml
   discover:
