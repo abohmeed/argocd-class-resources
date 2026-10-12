@@ -48,7 +48,7 @@ fi
 
 step "it captures the positive set: Applications, AppProjects, argocd-cm, argocd-secret"
 for want in 'kind: Application$' 'kind: AppProject$' 'name: argocd-cm$' 'name: argocd-secret$'; do
-  if grep -qE "^${want}" "${backup}"; then
+  if grep -qE "^ *${want}" "${backup}"; then
     _pass "export contains ${want}"
   else
     _fail "export is missing ${want}: the positive half of this lesson's claim does not hold"

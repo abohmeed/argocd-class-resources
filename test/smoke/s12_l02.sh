@@ -74,7 +74,7 @@ if command -v promtool >/dev/null 2>&1; then
     _fail "promtool rejects the rule file:\n$(promtool check rules "${tmpfile}" 2>&1)"
   fi
 elif command -v docker >/dev/null 2>&1; then
-  if docker run --rm -v "${tmpfile}:/work/rules.yaml" prom/prometheus promtool check rules /work/rules.yaml >/dev/null 2>&1; then
+  if docker run --rm --entrypoint promtool -v "${tmpfile}:/work/rules.yaml" prom/prometheus check rules /work/rules.yaml >/dev/null 2>&1; then
     _pass "both alert rules parse under promtool (containerised)"
   else
     _fail "promtool rejects the rule file (containerised check)"
