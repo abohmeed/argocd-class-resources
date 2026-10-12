@@ -84,16 +84,20 @@ step "reach argocd-server and set the account's password"
 kubectl -n argocd port-forward svc/argocd-server "${PORT}:443" >/tmp/s07l07-portforward.log 2>&1 &
 PF_PID=$!
 up="no"
-for _ in $(seq 1 20); do curl -sk "https://localhost:${PORT}/healthz" >/dev/null 2>&1 && { up="yes"; break; }; sleep 1; done
+# S02-L08 set server.insecure (TLS ends at the Gateway), so argocd-server speaks plain HTTP on this port.
+# Follow the server's own mode rather than assuming TLS.
+insecure="$(kubectl -n argocd get cm argocd-cmd-params-cm -o jsonpath='{.data.server\.insecure}' 2>/dev/null || true)"
+if [ "${insecure}" = "true" ]; then SCHEME=http; LOGIN_TLS="--plaintext"; else SCHEME=https; LOGIN_TLS="--insecure"; fi
+for _ in $(seq 1 20); do curl -sk "${SCHEME}://localhost:${PORT}/healthz" >/dev/null 2>&1 && { up="yes"; break; }; sleep 1; done
 [ "${up}" = "yes" ] || _fail "argocd-server never answered on the port-forward"
 ADMIN_PW="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 --decode)"
 [ -n "${ADMIN_PW}" ] || _fail "no argocd-initial-admin-secret on this cluster"
-argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
+argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 argocd account update-password --account "${ACCOUNT}" --new-password "${PASSWORD}" \
   --current-password "${ADMIN_PW}" --grpc-web >/dev/null
 
 step "pre-3.0-shaped policy (applications: update, delete only): deleting the managed Pod is refused"
-argocd login "localhost:${PORT}" --insecure --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
+argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
 if argocd app delete-resource "${APP}" --kind Pod --resource-name "${POD_NAME}" --namespace "${NS}" --grpc-web >/dev/null 2>&1; then
   _fail "the account deleted a managed Pod with only 'applications update/delete' granted: 3.0's sub-resource inheritance removal is not in effect"
 else
@@ -109,11 +113,11 @@ if ! kubectl get pod "${POD_NAME}" -n "${NS}" >/dev/null 2>&1; then
 fi
 
 step "add the explicit update/* and delete/* wildcard actions: the same delete now succeeds"
-argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
+argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
   "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete/*, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
 sleep 5
-argocd login "localhost:${PORT}" --insecure --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
+argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
 if argocd app delete-resource "${APP}" --kind Pod --resource-name "${POD_NAME}" --namespace "${NS}" --grpc-web >/dev/null 2>&1; then
   _pass "with update/* and delete/* granted, the same Pod delete now succeeds"
 else

@@ -78,16 +78,20 @@ step "reach argocd-server and set the account's password"
 kubectl -n argocd port-forward svc/argocd-server "${PORT}:443" >/tmp/s07l08-portforward.log 2>&1 &
 PF_PID=$!
 up="no"
-for _ in $(seq 1 20); do curl -sk "https://localhost:${PORT}/healthz" >/dev/null 2>&1 && { up="yes"; break; }; sleep 1; done
+# S02-L08 set server.insecure (TLS ends at the Gateway), so argocd-server speaks plain HTTP on this port.
+# Follow the server's own mode rather than assuming TLS.
+insecure="$(kubectl -n argocd get cm argocd-cmd-params-cm -o jsonpath='{.data.server\.insecure}' 2>/dev/null || true)"
+if [ "${insecure}" = "true" ]; then SCHEME=http; LOGIN_TLS="--plaintext"; else SCHEME=https; LOGIN_TLS="--insecure"; fi
+for _ in $(seq 1 20); do curl -sk "${SCHEME}://localhost:${PORT}/healthz" >/dev/null 2>&1 && { up="yes"; break; }; sleep 1; done
 [ "${up}" = "yes" ] || _fail "argocd-server never answered on the port-forward"
 ADMIN_PW="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 --decode)"
 [ -n "${ADMIN_PW}" ] || _fail "no argocd-initial-admin-secret on this cluster"
-argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
+argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 argocd account update-password --account "${ACCOUNT}" --new-password "${PASSWORD}" \
   --current-password "${ADMIN_PW}" --grpc-web >/dev/null
 
 step "full applications-level RBAC, no logs line: argocd app logs is refused, not merely empty"
-argocd login "localhost:${PORT}" --insecure --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
+argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
 out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)" && rc=0 || rc=$?
 if [ "${rc}" -eq 0 ]; then
   _fail "argocd app logs succeeded with no logs policy line granted: logs is not actually gated separately from applications"
@@ -96,11 +100,11 @@ else
 fi
 
 step "add the logs/get policy line: the same command now returns real output"
-argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
+argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
   "{\"data\":{\"policy.csv\":\"p, ${SUBJECT_ROLE}, applications, create, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, update/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, applications, delete/*, ${PROJ}/*, allow\np, ${SUBJECT_ROLE}, logs, get, ${PROJ}/*, allow\ng, ${ACCOUNT}, ${SUBJECT_ROLE}\"}}" >/dev/null
 sleep 5
-argocd login "localhost:${PORT}" --insecure --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
+argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
 out="$(timeout 20 argocd app logs "${APP}" --grpc-web 2>&1)" && rc=0 || rc=$?
 if [ "${rc}" -eq 0 ]; then
   _pass "argocd app logs succeeds once the logs/get policy line is added"

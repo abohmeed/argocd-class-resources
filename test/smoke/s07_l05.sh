@@ -78,16 +78,20 @@ EOF
 step "reach argocd-server directly (no TLS gateway on a bare CI cluster)"
 kubectl -n argocd port-forward svc/argocd-server "${PORT}:443" >/tmp/s07l05-portforward.log 2>&1 &
 PF_PID=$!
+# S02-L08 set server.insecure (TLS ends at the Gateway), so argocd-server speaks plain HTTP on this port.
+# Follow the server's own mode rather than assuming TLS.
+insecure="$(kubectl -n argocd get cm argocd-cmd-params-cm -o jsonpath='{.data.server\.insecure}' 2>/dev/null || true)"
+if [ "${insecure}" = "true" ]; then SCHEME=http; LOGIN_TLS="--plaintext"; else SCHEME=https; LOGIN_TLS="--insecure"; fi
 up="no"
 for _ in $(seq 1 20); do
-  curl -sk "https://localhost:${PORT}/healthz" >/dev/null 2>&1 && { up="yes"; break; }
+  curl -sk "${SCHEME}://localhost:${PORT}/healthz" >/dev/null 2>&1 && { up="yes"; break; }
   sleep 1
 done
 [ "${up}" = "yes" ] || _fail "argocd-server never answered on the port-forward: cannot test RBAC without the real API"
 
 ADMIN_PW="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 --decode)"
 [ -n "${ADMIN_PW}" ] || _fail "no argocd-initial-admin-secret on this cluster: cannot obtain admin credentials"
-argocd login "localhost:${PORT}" --insecure --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
+argocd login "localhost:${PORT}" ${LOGIN_TLS} --grpc-web --username admin --password "${ADMIN_PW}" >/dev/null
 _pass "logged in as admin over the port-forward"
 
 step "create an empty role, grant it get and then sync, and issue a token"
