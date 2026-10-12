@@ -29,9 +29,9 @@ fi
 grep -q 'argocd\.local' /etc/hosts 2>/dev/null || echo '127.0.0.1 argocd.local' | sudo tee -a /etc/hosts >/dev/null
 
 step "Argo CD is reachable over TLS through the Gateway route from the TLS lesson"
-code="$(curl -sk -o /dev/null -w '%{http_code}' https://argocd.local:8443/ 2>/dev/null)"
-[ "${code}" = "200" ] && _pass "https://argocd.local:8443/ -> 200" \
-  || _fail "https://argocd.local:8443/ -> ${code:-no response}: the Gateway route from the TLS lesson (s02_l08.sh) must be up before this lesson can run"
+code="$(curl -sk -o /dev/null -w '%{http_code}' https://argocd.local/ 2>/dev/null)"
+[ "${code}" = "200" ] && _pass "https://argocd.local/ -> 200" \
+  || _fail "https://argocd.local/ -> ${code:-no response}: the Gateway route from the TLS lesson (s02_l08.sh) must be up before this lesson can run"
 
 step "the bootstrap Secret exists and decodes to a real password"
 initial_pw="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)"
@@ -42,7 +42,7 @@ else
 fi
 
 step "the bootstrap password logs in"
-if argocd login argocd.local:8443 --insecure --username admin --password "${initial_pw}" >/dev/null 2>&1; then
+if argocd login argocd.local --insecure --username admin --password "${initial_pw}" >/dev/null 2>&1; then
   _pass "logged in with the bootstrap password"
 else
   _fail "could not log in with the bootstrap password: either it was already rotated by an earlier run or the login path itself is broken"
@@ -50,7 +50,7 @@ fi
 
 step "rotate the password"
 new_pw="rotation-probe-$(date +%s)"
-if argocd account update-password --insecure --server argocd.local:8443 \
+if argocd account update-password --insecure --server argocd.local \
     --current-password "${initial_pw}" --new-password "${new_pw}" >/dev/null 2>&1; then
   _pass "argocd account update-password reported success"
 else
@@ -58,14 +58,14 @@ else
 fi
 
 step "the NEW password logs in"
-if argocd login argocd.local:8443 --insecure --username admin --password "${new_pw}" >/dev/null 2>&1; then
+if argocd login argocd.local --insecure --username admin --password "${new_pw}" >/dev/null 2>&1; then
   _pass "logged in with the rotated password"
 else
   _fail "the NEW password does not log in: rotation did not actually take effect, even though update-password reported success"
 fi
 
 step "the OLD bootstrap password must NOT log in anymore"
-if argocd login argocd.local:8443 --insecure --username admin --password "${initial_pw}" >/dev/null 2>&1; then
+if argocd login argocd.local --insecure --username admin --password "${initial_pw}" >/dev/null 2>&1; then
   _fail "the OLD bootstrap password STILL logs in after rotation: update-password is cosmetic, not real, and the lesson's central claim is false"
 else
   _pass "the old bootstrap password no longer authenticates: the rotation is real, not cosmetic"
