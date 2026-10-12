@@ -27,7 +27,9 @@ poll_ready_replicas() {
   local name="$1" ns="$2" want="$3" timeout="${4:-180}" deadline got=""
   deadline=$(( $(date +%s) + timeout ))
   while [ "$(date +%s)" -lt "${deadline}" ]; do
-    got="$(kubectl get rollout "${name}" -n "${ns}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)"
+    # Count the Ready Pods of this Rollout directly. A blue-green Rollout paused between two ReplicaSets reports
+    # status.readyReplicas for the active side only, so the Rollout field read 1 while both versions were Ready.
+    got="$(kubectl get pods -n "${ns}" -l "app=${name}" -o jsonpath='{range .items[*]}{.status.containerStatuses[0].ready}{"\n"}{end}' 2>/dev/null | grep -c true || true)"
     [ "${got}" = "${want}" ] && return 0
     sleep 5
   done
