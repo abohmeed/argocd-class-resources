@@ -40,12 +40,13 @@ kubectl port-forward svc/argocd-metrics -n argocd 18082:8082 >/dev/null 2>&1 &
 PF_METRICS_PID=$!
 wait_for_forward localhost:18082/metrics
 metrics="$(curl -s localhost:18082/metrics)"
-if printf '%s' "${metrics}" | grep -q '^argocd_app_reconcile_bucket{'; then
+# grep -q <<< rather than a pipe: with pipefail, grep quitting early SIGPIPEs printf on a large body and fails the check.
+if grep -q '^argocd_app_reconcile_bucket{' <<<"${metrics}"; then
   _pass "argocd_app_reconcile is a histogram (le= buckets present)"
 else
   _fail "no argocd_app_reconcile_bucket series: the reconcile-duration histogram is missing"
 fi
-if printf '%s' "${metrics}" | grep -q '^argocd_app_sync_total'; then
+if grep -q '^argocd_app_sync_total' <<<"${metrics}"; then
   _pass "argocd_app_sync_total is present as a counter"
 else
   _fail "no argocd_app_sync_total series"
@@ -57,7 +58,8 @@ step "cluster-cache staleness is exposed too: the third signal the lesson points
 kubectl port-forward svc/argocd-metrics -n argocd 18082:8082 >/dev/null 2>&1 &
 PF_METRICS_PID=$!
 wait_for_forward localhost:18082/metrics
-if curl -s localhost:18082/metrics | grep -q '^argocd_cluster_cache_age_seconds'; then
+cache_metrics="$(curl -s localhost:18082/metrics)"
+if grep -q '^argocd_cluster_cache_age_seconds' <<<"${cache_metrics}"; then
   _pass "argocd_cluster_cache_age_seconds is exposed"
 else
   _fail "no argocd_cluster_cache_age_seconds series"
@@ -98,12 +100,23 @@ spec:
 EOF
 done
 
+# The metric is a gauge of requests waiting on the repository lock right now: it rises only while renders are running,
+# and the eight renders drain in seconds. So the sampling forces fresh renders (a hard refresh of each dummy, as the
+# lesson's watch troubleshooting row says) and samples while they run, keeping the highest reading seen.
 moved=no
+peak="${baseline}"
 for _ in $(seq 1 12); do
-  sleep 10
-  now="$(curl -s localhost:18084/metrics | grep '^argocd_repo_pending_request_total' | awk '{s+=$NF} END{print s+0}')"
-  if awk -v a="${now}" -v b="${baseline}" 'BEGIN{exit !(a>b)}'; then moved=yes; break; fi
+  for i in $(seq -w 1 "${DUMMY_COUNT}"); do
+    kubectl -n argocd annotate application "${DUMMY_NS_PREFIX}-${i}" argocd.argoproj.io/refresh=hard --overwrite >/dev/null 2>&1 || true
+  done
+  for _s in 1 2 3 4 5; do
+    now="$(curl -s localhost:18084/metrics | grep '^argocd_repo_pending_request_total' | awk '{s+=$NF} END{print s+0}')"
+    awk -v a="${now}" -v b="${peak}" 'BEGIN{exit !(a>b)}' && peak="${now}"
+    sleep 1
+  done
+  awk -v a="${peak}" -v b="${baseline}" 'BEGIN{exit !(a>b)}' && { moved=yes; break; }
 done
+now="${peak}"
 
 if [ "${moved}" = yes ]; then
   _pass "argocd_repo_pending_request_total climbed from ${baseline} under ${DUMMY_COUNT} freshly rendered Applications"
