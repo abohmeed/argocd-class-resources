@@ -22,10 +22,23 @@ fi
 _pass "no leftover SPIKE_NOTES.md from the branch-merge trap"
 
 step "the temporary JSON6902 failure demo from the previous lesson never reached this overlay"
-assert_file_lacks "apps/storefront/overlays/staging/kustomization.yaml" '^patches:' \
-  "overlays/staging carries no patches: block; the illustration-only JSON6902 failure was never committed"
-assert_file_lacks "apps/storefront/overlays/prod/kustomization.yaml" '^patches:' \
-  "overlays/prod carries no patches: block, nothing here besides the reviewable per-environment delta"
+# The only patch a per-environment overlay may carry is the replicas count: the base is a Rollout
+# from S10-L02 on, and kustomize's replicas field refuses a Rollout, so the count is a patch. Any
+# other patch path is the illustration-only failure this step rules out (a JSON6902 that breaks).
+for env in staging prod; do
+  f="apps/storefront/overlays/${env}/kustomization.yaml"
+  if grep -q '^patches:' "${REPO_ROOT}/${f}"; then
+    paths="$(grep -E '^[[:space:]]*path:' "${REPO_ROOT}/${f}" | sed -E 's/^[[:space:]]*path:[[:space:]]*//')"
+    other="$(printf '%s\n' "${paths}" | grep -vE '^/spec/replicas$' | grep -v '^$' || true)"
+    if [ -n "${paths}" ] && [ -z "${other}" ]; then
+      _pass "overlays/${env} patches only the replicas count (/spec/replicas), not a demo failure"
+    else
+      _fail "overlays/${env} carries a patch on something other than /spec/replicas: ${other:-no path at all}"
+    fi
+  else
+    _pass "overlays/${env} carries no patches: block"
+  fi
+done
 
 step "base never carries an environment-specific value: the delta lives ONLY in the overlay"
 assert_file_lacks "apps/storefront/base/configmap.yaml" 'storefront v1: (staging|prod)' \
