@@ -24,6 +24,19 @@ for svc in argocd-metrics argocd-server-metrics argocd-repo-server; do
   fi
 done
 
+step "kube-prometheus-stack is installed: the lesson's precondition (prep installs it on the recording VM; this suite installs it here)"
+# The exact install from the lesson's Do.md precondition, run only when the Operator's CRDs are absent.
+if ! kubectl get crd servicemonitors.monitoring.coreos.com >/dev/null 2>&1; then
+  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
+  helm repo update >/dev/null 2>&1 || true
+  helm install monitoring prometheus-community/kube-prometheus-stack \
+    --namespace monitoring --create-namespace \
+    --set grafana.enabled=false \
+    --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+    --set prometheus.prometheusSpec.ruleSelectorNilUsesHelmValues=false \
+    --wait --timeout 10m >/dev/null 2>&1 || _fail "kube-prometheus-stack did not install (helm install monitoring)"
+fi
+
 step "Prometheus Operator's CRDs are installed: the lesson's own precondition, proven rather than assumed"
 if kubectl get crd servicemonitors.monitoring.coreos.com prometheusrules.monitoring.coreos.com >/dev/null 2>&1; then
   _pass "ServiceMonitor and PrometheusRule CRDs are present"
