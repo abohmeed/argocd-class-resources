@@ -408,3 +408,29 @@ argocd_cli_release() {
     ARGOCD_PREV_NS=""
   fi
 }
+
+# argocd_sync_local <app> <dir> [timeout-seconds] [extra argocd sync args...]
+# Sync an Application from a local manifest directory without blocking on the operation.
+#
+# `argocd app sync` waits for the whole operation, and no timeout is set by default. A PreSync hook
+# that cannot finish (a Job whose pod cannot mount a ConfigMap yet, or one that fails and retries)
+# keeps the operation Running, so a plain sync hangs until the script's own ceiling kills it. So the
+# sync starts asynchronously, and this polls until the controller has cleared the requested operation
+# (`.operation` is removed when it completes). If it has not finished by the timeout, the operation is
+# terminated the way an operator would, and the function returns 1 for the caller to read the state.
+argocd_sync_local() {
+  local app="$1" dir="$2" timeout="${3:-120}" op deadline
+  shift 2
+  [ "$#" -gt 0 ] && shift   # the timeout, when given
+  argocd app sync "${app}" --local "${dir}" --async "$@" >/dev/null 2>&1 || true
+  deadline=$(( $(date +%s) + timeout ))
+  while :; do
+    op="$(kubectl get application "${app}" -n argocd -o jsonpath='{.operation}' 2>/dev/null || true)"
+    [ -z "${op}" ] && return 0
+    if [ "$(date +%s)" -ge "${deadline}" ]; then
+      argocd app terminate-op "${app}" >/dev/null 2>&1 || true
+      return 1
+    fi
+    sleep 3
+  done
+}
