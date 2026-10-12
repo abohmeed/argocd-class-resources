@@ -34,7 +34,9 @@ command -v kubectl-argo-rollouts >/dev/null 2>&1 || kubectl argo rollouts versio
 
 kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
-step "a Rollout whose analysis step names a template that does not exist hangs: it does not fail and does not promote"
+# A canary runs its steps only for a NEW revision: the first revision of a Rollout deploys at once. So the lesson's
+# order is reproduced here: a stable v1 first (no analysis step), then a v2 whose analysis step names the typo'd template.
+step "a stable v1 first: the Rollout deploys with no analysis step, as the lesson's stable release does"
 kubectl apply -n "${NS}" -f - >/dev/null <<'EOF'
 apiVersion: v1
 kind: Service
@@ -43,8 +45,7 @@ metadata:
 spec:
   selector: {app.kubernetes.io/name: s14l05-probe}
   ports: [{name: http, port: 80, targetPort: http}]
-EOF
-kubectl apply -n "${NS}" -f - >/dev/null <<'EOF'
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
@@ -60,29 +61,45 @@ spec:
       containers:
         - name: probe
           image: hashicorp/http-echo:1.0
-          args: ["-listen=:5678", "-text=s14l05 probe"]
+          args: ["-listen=:5678", "-text=s14l05 probe v1"]
           ports: [{name: http, containerPort: 5678}]
           readinessProbe: {httpGet: {path: /, port: http}, initialDelaySeconds: 2}
   strategy:
     canary:
       steps:
         - setWeight: 25
-        - analysis:
-            templates:
-              - templateName: s14l05-check-typo
+        - setWeight: 100
 EOF
+v1_phase=""
+for _ in $(seq 1 60); do
+  v1_phase="$(kubectl get rollout s14l05-probe -n "${NS}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+  [ "${v1_phase}" = "Healthy" ] && break
+  sleep 3
+done
+[ "${v1_phase}" = "Healthy" ] && _pass "stable v1 is Healthy" || _fail "stable v1 never became Healthy (phase '${v1_phase:-none}')"
 
-sleep 40
-phase="$(kubectl argo rollouts get rollout s14l05-probe -n "${NS}" -o json 2>/dev/null | grep -o '"phase":"[^"]*"' | head -1 || true)"
-analysisruns="$(kubectl get analysisrun -n "${NS}" --no-headers 2>/dev/null | wc -l | tr -d ' ')"
-if [ "${analysisruns}" = "0" ]; then
-  _pass "no AnalysisRun was ever created for a reference to a nonexistent AnalysisTemplate: the step hangs rather than erroring, exactly as this lesson claims"
+step "a v2 whose analysis step names a template that does not exist hangs: it does not fail and does not promote"
+# The lesson's typo, on purpose: the step names s14l05-check-typo, and the real template is s14l05-check (created below).
+# The new v2 text is the revision that starts the canary; the analysis step is where the typo sits.
+kubectl -n "${NS}" patch rollout s14l05-probe --type=json -p='[
+  {"op":"replace","path":"/spec/template/spec/containers/0/args","value":["-listen=:5678","-text=s14l05 probe v2"]},
+  {"op":"replace","path":"/spec/strategy/canary/steps","value":[{"setWeight":25},{"analysis":{"templates":[{"templateName":"s14l05-check-typo"}]}},{"setWeight":100}]}]' >/dev/null
+sleep 60
+early_runs="$(kubectl get analysisrun -n "${NS}" --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+if [ "${early_runs}" = "0" ]; then
+  _pass "no AnalysisRun was created for a reference to a nonexistent AnalysisTemplate: the step does not run, exactly as this lesson claims"
 else
   _fail "an AnalysisRun was created despite the template name being wrong: the hang did not reproduce as this lesson describes"
 fi
+held_phase="$(kubectl get rollout s14l05-probe -n "${NS}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+if [ "${held_phase}" != "Healthy" ]; then
+  _pass "the rollout did not promote: it reads ${held_phase:-none}, held on the step that names the missing template"
+else
+  _fail "the rollout reads Healthy with a missing template: it promoted past a step it could not run"
+fi
 
-step "fixing the reference and giving it a real, passing check lets the canary complete on its own"
-# The lesson's fix is the corrected reference (Rollout re-applied) plus the template under the corrected name.
+step "fixing the reference (and the template under its real name) lets the analysis run to a verdict on its own"
+# The lesson's fix: the corrected reference on the Rollout, and the template under the corrected name.
 kubectl apply -n "${NS}" -f - >/dev/null <<'EOF'
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
@@ -105,17 +122,16 @@ spec:
                     args:
                       - |
                         BODY=$(curl -s http://s14l05-probe.s14l05-canary.svc.cluster.local)
-                        test "$BODY" = "s14l05 probe"
+                        test "$BODY" = "s14l05 probe v2"
 EOF
-
-# With the reference fixed, the analysis runs and reaches a verdict. The probe's check may pass or fail (the lesson's
-# own 1.5.0 build is built to fail it); what the fix must do is let the AnalysisRun run to a result.
-# Re-apply the corrected reference to the Rollout itself (the step that names the template is index 1).
 kubectl -n "${NS}" patch rollout s14l05-probe --type=json \
   -p='[{"op":"replace","path":"/spec/strategy/canary/steps/1/analysis/templates/0/templateName","value":"s14l05-check"}]' >/dev/null
 
+# With the reference fixed, the analysis runs and reaches a verdict. The check may pass or fail (the lesson's own 1.5.0
+# build is built to fail it); what the fix must do is let the AnalysisRun run to a result.
 ok=no
-for _ in $(seq 1 12); do
+status=""
+for _ in $(seq 1 30); do
   sleep 10
   status="$(kubectl get analysisrun -n "${NS}" -o jsonpath='{.items[0].status.phase}' 2>/dev/null || true)"
   case "${status}" in Successful|Failed) ok=yes; break ;; esac
