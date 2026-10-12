@@ -16,7 +16,8 @@ tier cluster
 
 step "all three Argo CD metrics services name their port literally 'metrics': what makes one selector cover all three"
 for svc in argocd-metrics argocd-server-metrics argocd-repo-server; do
-  port_name="$(kubectl get svc "${svc}" -n argocd -o jsonpath='{.spec.ports[?(@.port==8082 || @.port==8083 || @.port==8084)].name}' 2>/dev/null || true)"
+  # Each metrics Service has one port; read its name directly (kubectl's jsonpath has no || filter).
+  port_name="$(kubectl get svc "${svc}" -n argocd -o jsonpath='{.spec.ports[*].name}' 2>/dev/null || true)"
   if printf '%s' "${port_name}" | grep -qw metrics; then
     _pass "${svc} names its metrics port 'metrics'"
   else
