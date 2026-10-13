@@ -19,12 +19,14 @@ APP="s12l11-probe"
 NS="s12l11-probe"
 orig_cm=""
 orig_secret=""
+secret_key_absent=""
 orig_mem=""
 
 cleanup() {
   [ -n "${orig_cm}" ] && kubectl -n argocd patch cm argocd-cm --type merge -p "${orig_cm}" >/dev/null 2>&1 || \
     kubectl -n argocd patch cm argocd-cm --type json -p '[{"op":"remove","path":"/data/resource.customizations"}]' >/dev/null 2>&1 || true
   [ -n "${orig_secret}" ] && kubectl -n argocd patch secret argocd-secret -p "${orig_secret}" >/dev/null 2>&1 || true
+  [ -n "${secret_key_absent}" ] && kubectl -n argocd patch secret argocd-secret --type json -p '[{"op":"remove","path":"/data/webhook.github.secret"}]' >/dev/null 2>&1 || true
   if [ -n "${orig_mem}" ]; then
     kubectl -n argocd patch deploy argocd-repo-server --type=json \
       -p="[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"${orig_mem}\"}]" >/dev/null 2>&1 || true
@@ -106,6 +108,8 @@ wait_for_sync "${APP}" 120
 step "breaking only Argo CD's side of the webhook secret makes delivery silently stop, with nothing to see on the Argo CD side either"
 orig_secret_val="$(kubectl -n argocd get secret argocd-secret -o jsonpath='{.data.webhook\.github\.secret}' 2>/dev/null || true)"
 [ -n "${orig_secret_val}" ] && orig_secret="{\"data\":{\"webhook.github.secret\":\"${orig_secret_val}\"}}"
+# A fresh install has no webhook.github.secret key at all (CI): then "restore" means removing the key again.
+[ -z "${orig_secret_val}" ] && secret_key_absent=yes
 kubectl -n argocd patch secret argocd-secret -p '{"stringData": {"webhook.github.secret": "s12l11-deliberately-wrong"}}' >/dev/null
 kubectl -n argocd rollout restart deploy argocd-server >/dev/null
 kubectl -n argocd rollout status deploy argocd-server --timeout=120s >/dev/null
@@ -118,6 +122,12 @@ if [ -n "${orig_secret}" ]; then
   kubectl -n argocd rollout restart deploy argocd-server >/dev/null
   kubectl -n argocd rollout status deploy argocd-server --timeout=120s >/dev/null
   _pass "webhook secret restored"
+elif [ -n "${secret_key_absent}" ]; then
+  kubectl -n argocd patch secret argocd-secret --type json -p '[{"op":"remove","path":"/data/webhook.github.secret"}]' >/dev/null
+  secret_key_absent=""
+  kubectl -n argocd rollout restart deploy argocd-server >/dev/null
+  kubectl -n argocd rollout status deploy argocd-server --timeout=120s >/dev/null
+  _pass "webhook secret restored (the key was absent before, so it is removed again)"
 else
   _fail "no original webhook secret value was captured: refusing to leave this cluster on a broken secret"
 fi

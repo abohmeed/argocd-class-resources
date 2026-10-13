@@ -121,7 +121,9 @@ sleep 3
 step "do it properly: fix it, verify preview, then promote"
 kubectl patch rollout "${NAME}" -n "${NS}" --type=json \
   -p='[{"op":"replace","path":"/spec/template/spec/containers/0/env/0/value","value":"probe-v2"}]' >/dev/null
-poll_ready_replicas "${NAME}" "${NS}" 2 180
+# After the abort, active (v1) already has 2 ready replicas, so poll_ready_replicas returns at once: wait for
+# the new preview ReplicaSet to answer instead (20 tries; each curl_in starts a pod, so about 3 minutes).
+for _ in $(seq 1 20); do [ "$(curl_in "${NAME}-preview")" = "probe-v2" ] && break; sleep 2; done
 [ "$(curl_in "${NAME}-preview")" = "probe-v2" ] && _pass "preview verified correct before promoting" \
   || _fail "preview did not serve the corrected version"
 kubectl argo rollouts promote "${NAME}" -n "${NS}" >/dev/null
