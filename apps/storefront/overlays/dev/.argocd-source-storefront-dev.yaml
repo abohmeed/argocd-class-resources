@@ -1,3 +1,0 @@
-kustomize:
-  images:
-  - hashicorp/http-echo=ghcr.io/abohmeed/argocd-class-app:d5cd76cc29e2a7603594f2be16577ae60875d856
