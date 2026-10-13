@@ -8,7 +8,7 @@ resources:
 images:
   - name: hashicorp/http-echo
     newName: ghcr.io/abohmeed/argocd-class-app
-    newTag: "242ff2022a0896cd5694c122da5c3211d6a19766"
+    newTag: "5208c382c77ec6328e4d693fb0be34627ebe49f7"
 # replicas comes from the base (1): kustomize's replicas field refuses a Rollout, which the base is from S10 L02 on.
 # The app image starts its own server on port 5678, so http-echo's flags are dropped.
 patches:
