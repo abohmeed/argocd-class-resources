@@ -127,7 +127,9 @@ EOF
 
 step "the bug reproduces: diff and sync fail with a YAML parse error, and nothing is deployed"
 sleep 15
-diff_out="$(argocd app diff "${APP}" --hard-refresh 2>&1)" && diff_rc=0 || diff_rc=$?
+# --revision main renders the plugin now (Do.md Step 8). A plain diff compares only ManagedResources, which are
+# empty until a sync succeeds, so without --revision the stdout leak is invisible: no output, exit 0.
+diff_out="$(argocd app diff "${APP}" --revision main --hard-refresh 2>&1)" && diff_rc=0 || diff_rc=$?
 if [ "${diff_rc}" -ge 2 ] && printf '%s\n' "${diff_out}" | grep -qiE 'unmarshal|yaml'; then
   _pass "argocd app diff fails (exit ${diff_rc}) with a YAML parse error from the plugin: the loud failure the lesson reads"
 else

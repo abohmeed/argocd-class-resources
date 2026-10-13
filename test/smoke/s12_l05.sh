@@ -56,7 +56,9 @@ for want in 'kind: Application$' 'kind: AppProject$' 'name: argocd-cm$' 'name: a
 done
 
 step "it does NOT capture argocd-notifications-cm, argocd-cmd-params-cm, or the Sealed Secrets sealing key: the gap the whole lesson is built on"
-for absent in 'name: argocd-notifications-cm$' 'name: argocd-cmd-params-cm$' 'sealed-secrets-key'; do
+# Anchored to the two-space indent of an exported object's own metadata.name. Unanchored, the
+# argocd Application's status.resources (it manages both ConfigMaps via bootstrap/install.yaml) matches too.
+for absent in '^  name: argocd-notifications-cm$' '^  name: argocd-cmd-params-cm$' 'sealed-secrets-key'; do
   if grep -q "${absent}" "${backup}"; then
     _fail "export UNEXPECTEDLY contains '${absent}': if this ever changes, the lesson's central gap has closed and the lesson is stale"
   else

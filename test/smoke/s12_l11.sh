@@ -71,6 +71,15 @@ kubectl -n argocd patch cm argocd-cm --type merge \
   -p "$(jq -n --arg v "${custom_lua}" '{data: {"resource.customizations": $v}}')" >/dev/null
 kubectl -n argocd rollout restart statefulset argocd-application-controller >/dev/null
 kubectl -n argocd rollout status statefulset argocd-application-controller --timeout=120s >/dev/null
+# Two things the restart alone does not do. First, the override must still be there: a read-back names a revert
+# (the argocd self-manage Application has selfHeal on and its install.yaml carries argocd-cm). Second, a restart
+# does not refresh the Application: the controller recomputes its health on the next resync, which with
+# timeout.reconciliation at 90s plus jitter (left set by S12-L09) lands after this poll. Ask for the refresh,
+# as Do.md Step 3 does with argocd app get --refresh.
+if [ -z "$(kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.resource\.customizations}' 2>/dev/null || true)" ]; then
+  _fail "the lying customization is not in argocd-cm after the controller restart: something reverted it before the check"
+fi
+kubectl -n argocd annotate application "${APP}" argocd.argoproj.io/refresh=normal --overwrite >/dev/null
 
 deadline=$(( $(date +%s) + 90 ))
 health=""

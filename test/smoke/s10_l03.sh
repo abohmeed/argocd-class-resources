@@ -110,17 +110,13 @@ poll_ready_replicas "${NAME}" "${NS}" 2 180
 [ "$(curl_in "${NAME}-preview")" = "probe-v2-WRONG" ] && _pass "preview service serves the new (wrong) version, verifiable before promotion" \
   || _fail "preview service did not serve the new version"
 
-step "promote blind: the wrong version reaches real traffic, exactly the blind spot this lesson opens on"
-kubectl argo rollouts promote "${NAME}" -n "${NS}" >/dev/null
-sleep 3
-[ "$(curl_in "${NAME}-active")" = "probe-v2-WRONG" ] && _pass "blind promotion shipped the wrong version to active traffic" \
-  || _fail "expected the blind promotion to ship the wrong version: blue/green semantics changed"
-
-step "abort: traffic snaps back instantly because the previous ReplicaSet was never scaled to zero"
+step "abort in preview: the bad release is caught before promotion, and active never moved"
+# Lesson D-343 (Talk.CHANGES.md): abort after a blue/green promotion undoes nothing, because the new
+# ReplicaSet is already stable. So the abort is taught before promotion, where it scales the preview down.
 kubectl argo rollouts abort "${NAME}" -n "${NS}" >/dev/null
 sleep 3
-[ "$(curl_in "${NAME}-active")" = "probe-v1" ] && _pass "abort snapped active traffic back to v1" \
-  || _fail "abort did not restore v1: the lesson's central abort behaviour does not reproduce"
+[ "$(curl_in "${NAME}-active")" = "probe-v1" ] && _pass "abort in preview left active traffic on v1: nothing was promoted" \
+  || _fail "abort in preview changed active traffic: blue/green did not hold before promotion"
 
 step "do it properly: fix it, verify preview, then promote"
 kubectl patch rollout "${NAME}" -n "${NS}" --type=json \

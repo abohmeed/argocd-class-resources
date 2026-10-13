@@ -29,12 +29,17 @@ assert_file_contains "bootstrap/self-manage-app.yaml" 'path: bootstrap$' \
   "the control-plane Application's source path is bootstrap itself, not bootstrap/apps"
 
 step "on the live cluster, the argocd (self-manage) Application actually carries the wave -1 annotation"
+# The lesson's Step 9 applies the committed bootstrap/self-manage-app.yaml from main. CI never replays
+# that step, and s02_l10.sh (an S01 to S09 script, so it reads the baseline tree) applies the baseline
+# copy, which has no wave. Replay Step 9's apply here, so the live object is the committed one.
+kubectl apply -n argocd -f "${REPO_ROOT}/bootstrap/self-manage-app.yaml" >/dev/null \
+  || _fail "could not apply the committed bootstrap/self-manage-app.yaml (the lesson's Step 9)"
 if kubectl get application argocd -n argocd >/dev/null 2>&1; then
   wave="$(kubectl get application argocd -n argocd -o jsonpath='{.metadata.annotations.argocd\.argoproj\.io/sync-wave}' 2>/dev/null || true)"
   if [ "${wave}" = "-1" ]; then
     _pass "the argocd Application carries argocd.argoproj.io/sync-wave: \"-1\""
   else
-    _fail "expected sync-wave '-1' on the argocd Application, got '${wave:-<unset>}': Step 5's ordering annotation is missing"
+    _fail "expected sync-wave '-1' on the argocd Application after applying the committed file, got '${wave:-<unset>}': Step 8's ordering annotation is missing from main's bootstrap/self-manage-app.yaml or was not applied"
   fi
 else
   _fail "no Application named 'argocd' exists on this cluster: this lesson's self-management bootstrap has not been applied"

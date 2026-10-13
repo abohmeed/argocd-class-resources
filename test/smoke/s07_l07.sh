@@ -5,9 +5,9 @@
 # The claim: a policy granting update/delete on `applications` alone no longer reaches the Pods,
 # Deployments and Services an Application manages, since Argo CD 3.0 that inheritance is gone.
 # Deleting a managed Pod is refused until the policy adds the explicit `update/*`/`delete/*`
-# wildcard actions. This is CLI-testable end to end via `argocd app delete-resource`, which is the
-# same RPC the UI's Pod-actions-menu Delete button calls: no browser needed to exercise the claim,
-# even though the lesson shows it through the UI.
+# wildcard actions. The delete is sent the way the lesson sends it (Do.md Steps 4 and 7, D-401): the
+# UI's own DELETE /api/v1/applications/{name}/resource call, made with curl. The CLI's delete-resource
+# cannot address a Pod (see api_delete_pod below), so it is not used. No browser is needed to exercise the claim.
 #
 # Logs in through argocd.local, the lesson's route, which the TLS gateway from s02_l08.sh serves.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
@@ -28,6 +28,21 @@ PORT=18207
 restore_rbac_cm() {
   kubectl patch configmap argocd-rbac-cm -n argocd --type json \
     -p '[{"op":"remove","path":"/data/policy.csv"}]' >/dev/null 2>&1 || true
+}
+
+# api_delete_pod: prints the response body of the Pod delete the UI's Delete button sends. Success is "{}"
+# (ApplicationResponse, empty). A refusal is a JSON error containing "permission denied" (HTTP 403).
+# The bearer token is the one the last `argocd login` stored in the CLI config (key auth-token).
+# argocd app delete-resource is not used: the CLI looks the Pod up in ManagedResources, which holds only the
+# objects declared in Git (controller/state.go builds it from reconciliation.Target), so for a Pod it fails with
+# "no matching resource found" before RBAC is ever consulted. Both the refusal and the success would then
+# read as a failure of the CLI, and the first check would pass for the wrong reason.
+api_delete_pod() {
+  local token
+  token="$(awk '/auth-token:/{print $NF; exit}' "${HOME}/.config/argocd/config" 2>/dev/null || true)"
+  curl -sk -X DELETE -H "Content-Type: application/json" -H "Authorization: Bearer ${token}" \
+    "https://argocd.local/api/v1/applications/${APP}/resource?namespace=${NS}&resourceName=${POD_NAME}&version=v1&kind=Pod&group=" \
+    || true
 }
 
 cleanup() {
@@ -94,10 +109,13 @@ argocd account update-password --account "${ACCOUNT}" --new-password "${PASSWORD
 
 step "pre-3.0-shaped policy (applications: update, delete only): deleting the managed Pod is refused"
 argocd login argocd.local ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
-if argocd app delete-resource "${APP}" --kind Pod --resource-name "${POD_NAME}" --namespace "${NS}" --grpc-web >/dev/null 2>&1; then
+resp="$(api_delete_pod)"
+if [ "${resp}" = "{}" ]; then
   _fail "the account deleted a managed Pod with only 'applications update/delete' granted: 3.0's sub-resource inheritance removal is not in effect"
-else
+elif printf '%s' "${resp}" | grep -q 'permission denied'; then
   _pass "Pod delete refused: applications-level update/delete does not reach a managed sub-resource"
+else
+  _fail "Pod delete neither succeeded nor was refused by RBAC (not a permission result, so the check proves nothing): ${resp}"
 fi
 if argocd app set "${APP}" --dest-namespace "${NS}" --grpc-web >/dev/null 2>&1; then
   _pass "the Application object itself is still reachable (a no-op update succeeds): only what it manages is out of reach, not the Application"
@@ -116,10 +134,11 @@ kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
 # delete is tried (the first attempt after a policy change raced the reload).
 sleep 20
 argocd login argocd.local ${LOGIN_TLS} --grpc-web --username "${ACCOUNT}" --password "${PASSWORD}" >/dev/null
-if argocd app delete-resource "${APP}" --kind Pod --resource-name "${POD_NAME}" --namespace "${NS}" --grpc-web >/dev/null 2>&1; then
+resp="$(api_delete_pod)"
+if [ "${resp}" = "{}" ]; then
   _pass "with update/* and delete/* granted, the same Pod delete now succeeds"
 else
-  _fail "delete-resource still refused after adding the explicit sub-resource wildcard actions"
+  _fail "Pod delete still not accepted after adding the explicit sub-resource wildcard actions: ${resp}"
 fi
 
 smoke_done
