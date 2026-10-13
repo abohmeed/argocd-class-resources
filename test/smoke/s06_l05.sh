@@ -24,19 +24,21 @@ lesson S06-L05 "no delete policy means BeforeHookCreation: a dozen syncs leave e
 tier cluster
 
 # Diagnostics, added 2026-10-13 after CI run 38442057383 timed out at 600 s, right after the step-2 pass line.
-# Nothing here changes what a check asserts, how a check passes or fails, or how long any wait lasts.
+# Nothing here changes what a check asserts or how a check passes or fails.
 #   - every step header and every observed action carries a UTC timestamp;
-#   - each cleanup delete runs exactly as before (same arguments, same wait). While it runs, a sampler
-#     prints one poll line every 4 s, at most 15: the Job UIDs, deletionTimestamp and finalizers, and the
-#     Application operation. Read together, the poll lines separate a Job that is re-created during the
-#     wait (UID changes, operation present), a Job stuck deleting (same UID, deletionTimestamp set,
-#     finalizers listed) and an API stall (a kubectl-rc in a poll line, or ticks that take long);
-#   - the API state after each delete, and a Job listing read right after each count, are printed (the
+#   - each cleanup is `kubectl delete jobs --all --wait=false`, then clear_hook_finalizers: a bounded
+#     grace, and then removal of the hook finalizer from any Job still deleting with it (see below).
+#     While the cleanup runs, a sampler prints one poll line every 4 s, at most 15: the Job UIDs,
+#     deletionTimestamp and finalizers, and the Application operation. Read together, the poll lines
+#     separate a Job that is re-created during the cleanup (UID changes, operation present), a Job stuck
+#     deleting (same UID, deletionTimestamp set, finalizers listed) and an API stall (a kubectl-rc in a
+#     poll line, or ticks that take long);
+#   - the API state after each cleanup, and a Job listing read right after each count, are printed (the
 #     count that decides a check is the origin/main read, unbounded, and is not replaced);
 #   - on a failed check, the EXIT trap prints a short FINAL REPORT before cleanup deletes anything.
-# A delete that hangs is not cut short here. The run_all.sh ceiling still ends the script; in that case
-# the poll lines are the last output, because the FINAL REPORT prints only when the script reaches its
-# own failure path.
+# Every cleanup call is bounded (timeout and --request-timeout), so a stalled API or a finalizer that never
+# clears cannot run the script into the run_all.sh ceiling. A Job still present after the bounded wait is
+# printed, and the next check reads what is left.
 
 ts() { date -u +%H:%M:%S; }
 note() { printf '  diag %s %s\n' "$(ts)" "$*"; }
@@ -171,9 +173,50 @@ poll_during_delete() {
   [ -e "${stop}" ] || printf '    poll %s cap: 15 samples (about 60 s) taken and the delete is still running\n' "$(ts)" || true
 }
 
-# delete_hook_jobs <label>: the cleanup delete of every Job in the namespace. Same command and same wait
-# as before the diagnostics; the sampler runs alongside it. The delete's output goes to a file, so no
-# pipe is held open by a delete that is still running.
+# hook_jobs_deleting: the names of the Jobs in the namespace that have a deletionTimestamp, one per line.
+hook_jobs_deleting() {
+  bounded 15 kubectl get jobs -n "${NS}" --request-timeout=10s \
+    -o jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true
+}
+
+# clear_hook_finalizers <label>: a Job that is being deleted and still lists argocd.argoproj.io/hook-finalizer
+# waits for Argo CD to drop that finalizer. Argo CD drops hook finalizers only inside a sync pass, and this
+# operation has already finished, so nothing else will drop it. The order is: a short grace first (the
+# controller may still drop it on its own), then removal of only the hook finalizer from each Job still
+# holding it (any other finalizer is kept), then a bounded wait until the namespace has no Jobs left.
+clear_hook_finalizers() {
+  local label="$1" i name job_json had keep left
+  for i in $(seq 1 8); do
+    [ -z "$(hook_jobs_deleting)" ] && break
+    sleep 2
+  done
+  for name in $(hook_jobs_deleting); do
+    job_json="$(bounded 15 kubectl get job "${name}" -n "${NS}" --request-timeout=10s -o json 2>/dev/null || true)"
+    had="$(printf '%s' "${job_json}" | jq -r '[(.metadata.finalizers // [])[] | select(. == "argocd.argoproj.io/hook-finalizer")] | length > 0' 2>/dev/null || true)"
+    if [ "${had}" = "true" ]; then
+      keep="$(printf '%s' "${job_json}" | jq -c '[(.metadata.finalizers // [])[] | select(. != "argocd.argoproj.io/hook-finalizer")] | if length == 0 then null else . end' 2>/dev/null || true)"
+      if [ -z "${keep}" ]; then
+        note "cleanup [${label}]: could not read the finalizer list of ${name}; left alone"
+        continue
+      fi
+      note "cleanup [${label}]: ${name} is still deleting with the hook finalizer after the grace; removing that finalizer"
+      bounded 15 kubectl patch job "${name}" -n "${NS}" --request-timeout=10s --type=merge \
+        -p "{\"metadata\":{\"finalizers\":${keep}}}" >/dev/null 2>&1 \
+        || note "cleanup [${label}]: the finalizer patch on ${name} failed or timed out"
+    fi
+  done
+  left=0
+  for i in $(seq 1 15); do
+    left="$(bounded 15 kubectl get jobs -n "${NS}" --no-headers --request-timeout=10s 2>/dev/null | wc -l | tr -d ' ' || true)"
+    [ "${left:-1}" -eq 0 ] && return 0
+    sleep 2
+  done
+  note "cleanup [${label}]: Jobs left after the bounded wait: ${left:-unreadable}; the next check reads what is left"
+}
+
+# delete_hook_jobs <label>: the cleanup of every Job in the namespace: a delete that does not wait
+# (--wait=false), then clear_hook_finalizers. The sampler runs alongside both. The delete's output goes to
+# a file, so no pipe is held open by anything that is still running.
 delete_hook_jobs() {
   local label="$1" stop pid t0 rc=0
   stop="${WORKDIR}/poll-stop"
@@ -181,8 +224,9 @@ delete_hook_jobs() {
   poll_during_delete "${stop}" &
   pid=$!
   t0="$(date +%s)"
-  note "delete start [${label}]: kubectl delete jobs --all"
-  kubectl delete jobs -n "${NS}" --all >"${WORKDIR}/delete.out" 2>&1 || rc=$?
+  note "delete start [${label}]: kubectl delete jobs --all --wait=false"
+  bounded 60 kubectl delete jobs -n "${NS}" --all --wait=false --request-timeout=30s >"${WORKDIR}/delete.out" 2>&1 || rc=$?
+  clear_hook_finalizers "${label}"
   touch "${stop}"
   { kill "${pid}"; wait "${pid}"; } 2>/dev/null || true
   LAST_DELETE_RC="${rc}"
