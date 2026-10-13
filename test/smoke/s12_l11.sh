@@ -9,6 +9,12 @@
 # exists: the workload is provably fine while resource.customizations lies about it; the webhook
 # genuinely stops arriving while GitHub's own delivery status is untouched; and the repo-server's
 # restart is provably OOMKilled, not a generic crash.
+#
+# The OOM part is the lesson's own cut (Do.md Step 6, prepare.sh's oom-cut.sh), in the same order:
+# the memory limit is 64Mi and must roll out first, so the pod that renders the load is the limited
+# one (the old unlimited pod would otherwise render and cache everything first); then 30 manual-sync
+# Applications on apps/storefront/base are applied in one go; then the test waits up to 5 minutes for
+# ONE repo-server pod whose last termination is OOMKilled.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 lesson S12-L11 "a lying Lua health check, a dead webhook secret, and a repo-server OOM are each diagnosable by their own distinct signal"
@@ -17,11 +23,14 @@ tier cluster
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
 APP="s12l11-probe"
 NS="s12l11-probe"
+OOM_LIMIT="64Mi"
+OOM_COUNT=30
 orig_cm=""
 orig_secret=""
 secret_key_absent=""
 orig_mem=""
 mem_touched=""
+oom_dir=""
 
 # set_repo_server_memory [value]: sets argocd-repo-server's memory limit by strategic merge patch. The stock install
 # carries no resources block on the container at all, so a JSON "replace" on .../limits/memory has nothing to replace
@@ -47,6 +56,12 @@ cleanup() {
   kubectl -n argocd rollout restart statefulset argocd-application-controller; kubectl -n argocd rollout restart deploy argocd-server argocd-repo-server >/dev/null 2>&1 || true
   kubectl delete application "${APP}" -n argocd --wait=false >/dev/null 2>&1 || true
   kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
+  for i in $(seq -w 1 "${OOM_COUNT}"); do
+    kubectl delete application "s12l11-oom-${i}" -n argocd --wait=false >/dev/null 2>&1 || true
+  done
+  if [ -n "${oom_dir}" ]; then
+    rm -rf "${oom_dir}"
+  fi
 }
 trap cleanup EXIT
 
@@ -149,10 +164,21 @@ step "a repo-server memory limit set below what real rendering load needs produc
 # orig_mem stays empty when the install has no limit (stock): the restore then removes the key rather than writing one back.
 orig_mem="$(kubectl -n argocd get deploy argocd-repo-server -o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}' 2>/dev/null || true)"
 mem_touched=yes
-set_repo_server_memory 48Mi
+set_repo_server_memory "${OOM_LIMIT}"
+# The lesson's cut waits for this rollout before it applies any load: the old pod has no limit and would otherwise
+# render every Application first, and the renders are then cached, so the limited pod would have nothing left to do.
+if ! kubectl -n argocd rollout status deploy argocd-repo-server --timeout=180s >/dev/null; then
+  _fail "at ${OOM_LIMIT} the new repo-server pod never became ready, so the old pod keeps serving (the lesson's cut stops here with NOT READY): no OOM can be read from a pod that never ran the load"
+fi
+live_mem="$(kubectl -n argocd get deploy argocd-repo-server -o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}' 2>/dev/null || true)"
+[ "${live_mem}" = "${OOM_LIMIT}" ] || _fail "argocd-repo-server carries memory limit '${live_mem}' after the patch, expected ${OOM_LIMIT}"
+_pass "argocd-repo-server rolled out at a ${OOM_LIMIT} memory limit: the pod that will render the load is the limited one"
 
-for i in $(seq -w 1 15); do
-  kubectl apply -f - >/dev/null <<EOF
+# The load is the lesson's own: ${OOM_COUNT} manual-sync Applications (syncPolicy: {}) on apps/storefront/base, each with its
+# own destination namespace, so each one is a distinct manifest render, applied together as Do.md Step 6 does.
+oom_dir="$(mktemp -d)"
+for i in $(seq -w 1 "${OOM_COUNT}"); do
+  cat > "${oom_dir}/s12l11-oom-${i}.yaml" <<EOF
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata: {name: s12l11-oom-${i}, namespace: argocd}
@@ -163,25 +189,35 @@ spec:
   syncPolicy: {}
 EOF
 done
+kubectl apply -f "${oom_dir}" >/dev/null
 
+# The pod state the lesson's cut waits for: exactly ONE repo-server pod (a finished rollout leaves no healthy old pod to
+# be picked up), whose first container has restarted and whose last termination reason is OOMKilled.
 oomed=no
-deadline=$(( $(date +%s) + 240 ))
+pods=""
+deadline=$(( $(date +%s) + 300 ))
 while [ "$(date +%s)" -lt "${deadline}" ]; do
-  reason="$(kubectl describe pod -n argocd -l app.kubernetes.io/name=argocd-repo-server 2>/dev/null | grep -A2 'Last State' | grep -m1 Reason || true)"
-  if printf '%s' "${reason}" | grep -q OOMKilled; then oomed=yes; break; fi
-  sleep 10
-done
-
-for i in $(seq -w 1 15); do
-  kubectl delete application "s12l11-oom-${i}" -n argocd --wait=false >/dev/null 2>&1 || true
-  kubectl delete namespace "s12l11-oom-${i}" --wait=false >/dev/null 2>&1 || true
+  pods="$(kubectl get pods -n argocd -l app.kubernetes.io/name=argocd-repo-server \
+    -o jsonpath='{range .items[*]}{.metadata.deletionTimestamp}|{.status.containerStatuses[0].restartCount}|{.status.containerStatuses[0].lastState.terminated.reason}{"\n"}{end}' 2>/dev/null || true)"
+  if [ "$(grep -c . <<<"${pods}" || true)" = "1" ] && grep -qE '^\|[1-9][0-9]*\|OOMKilled$' <<<"${pods}"; then
+    oomed=yes
+    break
+  fi
+  sleep 3
 done
 
 if [ "${oomed}" = yes ]; then
-  _pass "argocd-repo-server's own 'Last State' names Reason: OOMKilled: provably the memory limit, not a generic crash"
+  _pass "argocd-repo-server's own last termination reads OOMKilled at a ${OOM_LIMIT} limit under ${OOM_COUNT} Applications: provably the memory limit, not a generic crash"
 else
-  _fail "repo-server never showed OOMKilled within the timeout: either the limit wasn't tight enough on this node, or the load didn't reach it"
+  printf '  diag  repo-server pods as last seen (deletionTimestamp|restartCount|last terminated reason): %s\n' "${pods:-none}"
+  kubectl -n argocd top pod -l app.kubernetes.io/name=argocd-repo-server 2>/dev/null | sed 's/^/  diag  /' || printf '  diag  kubectl top unavailable\n'
+  kubectl -n argocd logs deploy/argocd-repo-server --tail=5 2>/dev/null | sed 's/^/  diag  /' || true
+  _fail "no single repo-server pod showed OOMKilled within 300 s at a ${OOM_LIMIT} limit under ${OOM_COUNT} Applications: either the limit or the load did not reach the OOM on this node"
 fi
+
+for i in $(seq -w 1 "${OOM_COUNT}"); do
+  kubectl delete application "s12l11-oom-${i}" -n argocd --wait=false >/dev/null 2>&1 || true
+done
 
 step "restoring the memory limit lets the repo-server run cleanly again"
 set_repo_server_memory "${orig_mem}"
