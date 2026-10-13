@@ -14,3 +14,8 @@ configMapGenerator:
     behavior: merge
     literals:
       - "banner=checkout v1: dev"
+patches:
+  - path: sealedsecret.yaml
+    target:
+      kind: SealedSecret
+      name: checkout-db
