@@ -18,8 +18,9 @@ name: smoke
 #    The earlier three-minor matrix tested versions no lesson uses, and its failures
 #    (for example "install.yaml does not pin v3.3.14") were artifacts of the matrix, not defects in
 #    a lesson. Moving the pin is a course decision; when it moves, versions.env moves with it.
-# 4. Every job has a 60-minute ceiling, so a hung step fails loudly instead of holding a runner
-#    for six hours.
+# 4. The repo tier jobs have a 60-minute ceiling, so a hung step fails loudly instead of holding a
+#    runner for six hours. The cluster suite has 180 minutes (GitHub-hosted jobs allow 360): a passing
+#    run waits for real Argo CD health, so its ceiling is the honest length of a full run, not a hang.
 
 on:
   pull_request:
@@ -47,7 +48,7 @@ jobs:
       - name: A throwaway k3s with Argo CD's CRDs, for the manifest-parse step
         run: |
           set -euo pipefail
-          curl -sfL https://get.k3s.io | sh -
+          ./test/install_k3s.sh
           mkdir -p ~/.kube && sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config && sudo chown "$(id -u):$(id -g)" ~/.kube/config  # a user-owned COPY, as the cluster setup lesson teaches; never chmod the original
           echo "KUBECONFIG=$HOME/.kube/config" >> "$GITHUB_ENV"
           export KUBECONFIG=$HOME/.kube/config
