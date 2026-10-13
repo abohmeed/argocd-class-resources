@@ -78,15 +78,21 @@ jobs:
     # Nightly and on demand only (see the header). The repo tier above still gates every push.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # A full run takes about an hour of real Argo CD health waits; 180 leaves room for the slow lessons.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
+      # k3s at the pinned K3S_VERSION (test/versions.env), retried; never the floating channel.
       - name: Install k3s (a cluster built from nothing, every run)
         run: |
-          curl -sfL https://get.k3s.io | sh -
+          ./test/install_k3s.sh
           mkdir -p ~/.kube && sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config && sudo chown "$(id -u):$(id -g)" ~/.kube/config  # a user-owned COPY, as the cluster setup lesson teaches; never chmod the original
           echo "KUBECONFIG=$HOME/.kube/config" >> "$GITHUB_ENV"
+
+      # S04-L05 teaches Helm 4 and its Do.md expects v4.3.x; GitHub-hosted runners ship Helm 3.
+      - name: Install the pinned Helm 4 (HELM_VERSION in test/versions.env)
+        run: ./test/install_helm.sh
 
       - name: Wait for the node
         run: kubectl wait --for=condition=Ready node --all --timeout=180s
@@ -100,6 +106,11 @@ jobs:
           echo "Argo CD pin: ${ARGOCD_PIN}"
           grep -q "quay.io/argoproj/argocd:${ARGOCD_PIN}" bootstrap/install.yaml \
             || { echo "bootstrap/install.yaml does not pin ${ARGOCD_PIN}"; exit 1; }
+
+      # The client tools the lessons drive (argocd --core, kubectl argo rollouts, kubeseal), at their pins,
+      # with sha256 checked against each release. The runner image ships none of them.
+      - name: Install the cluster tools at their pins (argocd, kubectl argo rollouts, kubeseal)
+        run: ./test/install_cluster_tools.sh
 
       - run: ./test/smoke/s02_control_plane.sh
       - run: ./test/smoke/s01_northwind.sh
