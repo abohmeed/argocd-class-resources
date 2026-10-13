@@ -212,7 +212,16 @@ else
   printf '  diag  repo-server pods as last seen (deletionTimestamp|restartCount|last terminated reason): %s\n' "${pods:-none}"
   kubectl -n argocd top pod -l app.kubernetes.io/name=argocd-repo-server 2>/dev/null | sed 's/^/  diag  /' || printf '  diag  kubectl top unavailable\n'
   kubectl -n argocd logs deploy/argocd-repo-server --tail=5 2>/dev/null | sed 's/^/  diag  /' || true
-  _fail "no single repo-server pod showed OOMKilled within 300 s at a ${OOM_LIMIT} limit under ${OOM_COUNT} Applications: either the limit or the load did not reach the OOM on this node"
+  peak="$(kubectl -n argocd top pod -l app.kubernetes.io/name=argocd-repo-server --no-headers 2>/dev/null | awk '{print $3}' | head -1 || true)"
+  for i in $(seq -w 1 "${OOM_COUNT}"); do
+    kubectl delete application "s12l11-oom-${i}" -n argocd --wait=false >/dev/null 2>&1 || true
+  done
+  # 2026-10-13 (CI run 5): on a GitHub runner the lesson's own load (30 Applications on apps/storefront/base, most of
+  # them served from the manifest cache) kept the repo-server at about 54Mi, under the 64Mi limit, so no OOM happens
+  # here. The lesson produces it off camera on the recording VM (prepare.sh writes oom-cut.sh, with a lower-limit
+  # fallback). That is load this runner does not have: declare it, never fake an OOM. The checks above stay asserted.
+  needs_external "rendering load above a ${OOM_LIMIT} repo-server limit (the lesson's off-camera oom-cut.sh on the recording VM)" \
+    "on this runner ${OOM_COUNT} Applications peaked at ${peak:-unknown} with no OOMKilled restart in 300 s"
 fi
 
 for i in $(seq -w 1 "${OOM_COUNT}"); do
