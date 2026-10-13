@@ -19,8 +19,169 @@ APP="s12l10-probe"
 NS="s12l10-probe"
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
 
+# ---------------------------------------------------------------------------------------------
+# DIAGNOSTICS ONLY. No assertion, verdict or pass/fail outcome changes, and a passing run takes the same time.
+# A failing run takes longer: a watch (ending by 430 s from script start) and the digest run after the verdict is set.
+#
+# Competing hypotheses for the failing revert check (the label survives the 120 s window). The controller
+# counts are scoped to the flap (from LOG_SINCE, set just before the flap), not the last 20 minutes.
+#   H-backoff  selfHeal retries, but Argo CD spaces the attempts out (selfHealRemainingBackoff:
+#              2, 6, 18, 54, 162, then 300 s). Seen as "already attempted sync ... (retrying in X)"
+#              log lines and autoHealAttemptsCount of 3 or more. CONFIRMED when backoff-retrying is 1 or
+#              more, the count is 3 or more, and either the label is removed later in the watch or
+#              la=yes. WEAKENED when the label is still present at the end of the watch with a backoff
+#              count of 0 or 1.
+#   H-failed   the last auto-sync did not succeed, so Argo CD never retries ("failed previous
+#              sync attempt ... will not retry"). CONFIRMED by phase Failed or Error, or a non-zero
+#              failed-no-retry count. RULED OUT by phase Succeeded and a zero failed-no-retry count.
+#   H-blind    Argo CD does not treat the label as drift, so selfHeal never runs. CONFIRMED by the
+#              "application status is Synced" lines with zero initiated-auto-sync lines, and argocd app
+#              diff exit 0 with zero injected-by lines. RULED OUT if the diff names injected-by or any
+#              initiated-auto-sync line appears.
+#   H-stuck    an operation never clears ("another operation is in progress", phase Running), or
+#              the refresh request was never consumed (refresh annotation still set). CONFIRMED by
+#              operation-already-running above 0, or the refresh annotation still set. RULED OUT when both are zero.
+#   H-apply    an auto-sync runs, but the apply cannot remove the label because it was never in
+#              last-applied-configuration (la=no), so a three-way apply does not delete a field it never
+#              owned. CONFIRMED by initiated-auto-sync of 1 or more, the label still present, and la=no.
+#              Reasoned from the gitops-engine apply path, not run against a cluster.
+#   H-flap     the 45 s flap did not land as intended. CONFIRMED by patches failed above 0 (first-error printed).
+#
+# run_all.sh prints only the last 20 lines of a failing script, so the digest below is kept to
+# about 15 lines, and the same text is appended to the job summary when CI sets GITHUB_STEP_SUMMARY.
+# ---------------------------------------------------------------------------------------------
+SCRIPT_START="$(date +%s)"
+
+# Step headers carry a UTC timestamp, so the log shows when each step started.
+step() { printf '\n\033[1m==> [%s] %s\033[0m\n' "$(date -u +%H:%M:%S)" "$1"; }
+
+# A call that can hang gets a ceiling where GNU timeout exists (the CI runner). Used as a prefix: ${BOUND_CMD:+${BOUND_CMD} 30}.
+BOUND_CMD=""
+if command -v timeout >/dev/null 2>&1; then BOUND_CMD="timeout --kill-after=5"; fi
+
+# kget <jsonpath body>: one field of the test Application, empty on any error.
+kget() { kubectl get application "${APP}" -n argocd -o "jsonpath=$1" 2>/dev/null || true; }
+
+# app_brief: "sync/health/operation-phase" in one read, for the state series.
+app_brief() {
+  kubectl get application "${APP}" -n argocd -o go-template='{{.status.sync.status}}/{{.status.health.status}}/{{with .status.operationState}}{{.phase}}{{end}}' 2>/dev/null || echo "?"
+}
+
+FLAP_TALLY=""
+FLAP_ERR=""
+ANNOT_RC=0
+EXT_RESULT="not run"
+DIGEST=""
+SERIES=""
+LAST_STATE=""
+POLL_T0="${SCRIPT_START}"
+LOG_SINCE=""
+PRESENCE=""
+
+# sample_state <label value>: adds a point to the series only when the state changes, to keep it short.
+sample_state() {
+  local present="$1" t p state
+  t=$(( $(date +%s) - POLL_T0 ))
+  p=n
+  if [ -n "${present}" ]; then p=y; fi
+  state="present=${p} $(app_brief)"
+  if [ "${state}" != "${LAST_STATE}" ]; then
+    SERIES="${SERIES}${SERIES:+ ; }+${t}s ${state}"
+    LAST_STATE="${state}"
+  fi
+}
+
+# diag <text>: one line on stdout, and kept for the job summary.
+diag() {
+  printf 'diag %s\n' "$*"
+  DIGEST="${DIGEST}$*"$'\n'
+}
+
+# dump_digest <where> <mode>: the state that tells the hypotheses apart. mode is "revert" after the 120 s
+# check (the flap and the watch ran) or "step2" (they did not, so their lines say so instead of repeating step 1).
+dump_digest() {
+  local where="$1" mode="$2" sync health rec ann phase op_auto op_sa op_start op_fin op_rev op_msg
+  local live lastapplied la managers res rt rj diff_file diff_out diff_rc diff_hits diff_first annot_txt
+  local ctl status_lines since_arg pat last_line n_init n_backoff n_noretry n_busy ok_n err_n first_err
+  DIGEST=""
+  diag "digest at ${where}, $(date -u +%H:%M:%S), script t=$(( $(date +%s) - SCRIPT_START ))s"
+
+  sync="$(kget '{.status.sync.status}')"
+  health="$(kget '{.status.health.status}')"
+  rec="$(kget '{.status.reconciledAt}')"
+  ann="$(kget '{.metadata.annotations.argocd\.argoproj\.io/refresh}')"
+  annot_txt=""
+  if [ "${mode}" = "revert" ]; then annot_txt=" annotate-rc=${ANNOT_RC}"; fi
+  diag "app ${APP}: sync=${sync:-?} health=${health:-?} reconciledAt=${rec:-?} refresh-annotation=${ann:-none}${annot_txt}"
+
+  phase="$(kget '{.status.operationState.phase}')"
+  op_auto="$(kget '{.status.operationState.operation.initiatedBy.automated}')"
+  op_sa="$(kget '{.status.operationState.operation.sync.autoHealAttemptsCount}')"
+  op_start="$(kget '{.status.operationState.startedAt}')"
+  op_fin="$(kget '{.status.operationState.finishedAt}')"
+  op_rev="$(kget '{.status.operationState.syncResult.revision}' | cut -c1-12)"
+  op_msg="$(kget '{.status.operationState.message}' | cut -c1-120)"
+  diag "operationState: phase=${phase:-none} initiatedBy.automated=${op_auto:-none} autoHealAttemptsCount=${op_sa:-none} startedAt=${op_start:-?} finishedAt=${op_fin:-?} rev=${op_rev:-?} message=\"${op_msg}\""
+
+  live="$(kubectl -n "${NS}" get rollout storefront -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
+  # Captured first, then matched: a grep -q that exits early could SIGPIPE kubectl and flip this under pipefail.
+  lastapplied="$(kubectl -n "${NS}" get rollout storefront -o jsonpath='{.metadata.annotations.kubectl\.kubernetes\.io/last-applied-configuration}' 2>/dev/null || true)"
+  la=no
+  case "${lastapplied}" in *injected-by*) la=yes ;; esac
+  managers="$(kubectl -n "${NS}" get rollout storefront -o jsonpath='{.metadata.managedFields[*].manager}' 2>/dev/null || true)"
+  res="$(kget '{range .status.resources[*]}{.kind}/{.name}={.status}{"\n"}{end}' | grep '^Rollout/' || true)"
+  diag "rollout storefront: injected-by live=${live:-absent} in-last-applied=${la} managers=${managers:-?} app-status.resources=${res:-none-listed}"
+
+  rt="$(kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.timeout\.reconciliation}' 2>/dev/null || true)"
+  rj="$(kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.timeout\.reconciliation\.jitter}' 2>/dev/null || true)"
+  diag "argocd-cm: timeout.reconciliation=${rt:-default} timeout.reconciliation.jitter=${rj:-default}"
+
+  diff_file="$(mktemp)"
+  diff_rc=0
+  ${BOUND_CMD:+${BOUND_CMD} 20} argocd app diff "${APP}" >"${diff_file}" 2>&1 || diff_rc=$?
+  diff_out="$(cat "${diff_file}")"
+  rm -f "${diff_file}"
+  diff_hits="$(printf '%s\n' "${diff_out}" | grep -c 'injected-by' || true)"
+  diff_first="$(printf '%s\n' "${diff_out}" | grep -m1 'injected-by' | cut -c1-120 || true)"
+  diag "argocd app diff (20s cap): exit=${diff_rc} lines-naming-injected-by=${diff_hits:-0} first=\"${diff_first}\""
+
+  # Scoped to this step: LOG_SINCE is set just before the flap (step 1) or just before the step 2 patch.
+  since_arg="--since=20m"
+  if [ -n "${LOG_SINCE}" ]; then since_arg="--since-time=${LOG_SINCE}"; fi
+  ctl="$(kubectl -n argocd logs statefulset/argocd-application-controller "${since_arg}" --request-timeout=15s 2>/dev/null | grep -F "${APP}" || true)"
+  n_init="$(printf '%s\n' "${ctl}" | grep -c 'Initiated automated sync' || true)"
+  n_backoff="$(printf '%s\n' "${ctl}" | grep -c 'already attempted sync' || true)"
+  n_noretry="$(printf '%s\n' "${ctl}" | grep -c 'will not retry' || true)"
+  n_busy="$(printf '%s\n' "${ctl}" | grep -c 'another operation is in progress' || true)"
+  status_lines="$(printf '%s\n' "${ctl}" | grep -o 'application status is [A-Za-z]*' | sort | uniq -c | tr -s ' ' | tr '\n' ' ' || true)"
+  diag "controller log from ${LOG_SINCE:-20 min ago}, lines naming ${APP}: initiated-auto-sync=${n_init:-0} backoff-retrying=${n_backoff:-0} failed-no-retry=${n_noretry:-0} operation-already-running=${n_busy:-0}"
+  diag "  status lines: ${status_lines:-none}"
+  # The last line of each class, so a long run of steady-state status lines cannot push out the sync decisions.
+  for pat in 'Initiated automated sync' 'already attempted sync' 'will not retry' 'application status is'; do
+    last_line="$(printf '%s\n' "${ctl}" | grep -F "${pat}" | tail -1 || true)"
+    if [ -n "${last_line}" ]; then diag "  last of '${pat}': ${last_line:0:180}"; fi
+  done
+
+  if [ "${mode}" = "revert" ]; then
+    ok_n="$(grep -c '^ok$' "${FLAP_TALLY:-/dev/null}" 2>/dev/null || true)"
+    err_n="$(grep -c '^err$' "${FLAP_TALLY:-/dev/null}" 2>/dev/null || true)"
+    first_err="$(head -1 "${FLAP_ERR:-/dev/null}" 2>/dev/null | cut -c1-160 || true)"
+    diag "flap (45s, one patch every 4s): patches ok=${ok_n:-0} failed=${err_n:-0} first-error=\"${first_err}\""
+    diag "label presence per sample, 120 s check then watch (y = on the Rollout): ${PRESENCE:0:80}"
+    diag "series after the 120 s check (present=y: label on the Rollout): ${SERIES:0:300}"
+    diag "past the 120s window: ${EXT_RESULT}"
+  else
+    diag "flap, 120 s check and watch: not part of this step (see the step 1 digest)"
+  fi
+
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    { printf '\n### s12_l10 diagnostics: %s\n\n' "${where}"; printf '%s' "${DIGEST}" | sed 's/^/    /'; } >> "${GITHUB_STEP_SUMMARY}" 2>/dev/null || true
+  fi
+}
+
 cleanup() {
   [ -n "${FLAP_PID:-}" ] && kill "${FLAP_PID}" >/dev/null 2>&1 || true
+  if [ -n "${FLAP_TALLY:-}" ]; then rm -f "${FLAP_TALLY}" "${FLAP_ERR}" 2>/dev/null || true; fi
   kubectl delete application "${APP}" -n argocd --wait=true --timeout=60s >/dev/null 2>&1 || true
   kubectl delete namespace "${HOOK_NS}" --wait=false >/dev/null 2>&1 || true
   kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
@@ -82,11 +243,15 @@ EOF
 wait_for_sync "${APP}" 180
 
 step "a repeatedly re-applied label IS reverted by selfHeal alone: the flap this lesson opens on"
+FLAP_TALLY="$(mktemp)"
+FLAP_ERR="$(mktemp)"
+LOG_SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 (
   while true; do
+    # Same effect as before: a failed patch still ends this loop (errexit is inherited). The tally only records it.
     kubectl -n "${NS}" patch rollout storefront --type=json \
       -p='[{"op":"add","path":"/spec/template/metadata/labels/injected-by","value":"webhook-sim"}]' \
-      >/dev/null 2>&1
+      >/dev/null 2>>"${FLAP_ERR}" && echo ok >>"${FLAP_TALLY}" || { echo err >>"${FLAP_TALLY}"; exit 1; }
     sleep 4
   done
 ) &
@@ -94,18 +259,44 @@ FLAP_PID=$!
 sleep 45
 kill "${FLAP_PID}" >/dev/null 2>&1 || true
 FLAP_PID=""
+POLL_T0="$(date +%s)"
 # selfHeal reverts on the controller's next reconcile of the Application. Ask for one, then poll for the revert
 # rather than trusting a fixed wait, since the Rollout's own rollout after each flap takes a while to settle.
-kubectl -n argocd annotate application "${APP}" argocd.argoproj.io/refresh=normal --overwrite >/dev/null 2>&1 || true
+if kubectl -n argocd annotate application "${APP}" argocd.argoproj.io/refresh=normal --overwrite >/dev/null 2>&1; then
+  ANNOT_RC=0
+else
+  ANNOT_RC=$?
+fi
 still_present="x"
 for _ in $(seq 1 24); do
   still_present="$(kubectl get rollout storefront -n "${NS}" -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
+  # Records presence only: no extra calls in this loop, so the 120 s verdict window keeps its length.
+  if [ -n "${still_present}" ]; then PRESENCE="${PRESENCE}y"; else PRESENCE="${PRESENCE}n"; fi
   [ -z "${still_present}" ] && break
   sleep 5
 done
 if [ -z "${still_present}" ]; then
   _pass "with plain selfHeal and no ignoreDifferences, the flapped label was reverted away: reproduces the lesson's opener"
 else
+  # Diagnostics only: keep watching until the budget (430 s from script start by default), so the digest and cleanup
+  # still finish under run_all.sh's 600 s ceiling. This runs only on the failure path, after the verdict is set.
+  # The verdict stays the 120 s verdict above; this only records whether a revert arrives later.
+  sample_state "${still_present}"
+  EXT_END=$(( SCRIPT_START + ${S12L10_DIAG_BUDGET:-430} ))
+  EXT_RESULT="budget spent before the watch began; label still present"
+  now_present=""
+  while [ "$(date +%s)" -lt "${EXT_END}" ]; do
+    sleep 10
+    now_present="$(kubectl get rollout storefront -n "${NS}" -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
+    sample_state "${now_present}"
+    if [ -n "${now_present}" ]; then PRESENCE="${PRESENCE}y"; else PRESENCE="${PRESENCE}n"; fi
+    if [ -z "${now_present}" ]; then
+      EXT_RESULT="label removed at +$(( $(date +%s) - POLL_T0 ))s, i.e. after the 120s window closed"
+      break
+    fi
+    EXT_RESULT="label still present at +$(( $(date +%s) - POLL_T0 ))s (watch budget ends at +$(( EXT_END - POLL_T0 ))s)"
+  done
+  dump_digest "the revert check (120 s window)" revert
   _fail "the flapped label is still present after selfHeal had time to revert it: the opener does not reproduce"
 fi
 
@@ -124,6 +315,7 @@ spec:
     - RespectIgnoreDifferences=true
 ' >/dev/null
 
+LOG_SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 kubectl -n "${NS}" patch rollout storefront --type=json \
   -p='[{"op":"add","path":"/spec/template/metadata/labels/injected-by","value":"webhook-sim"}]' >/dev/null
 argocd app sync "${APP}" >/dev/null 2>&1 || kubectl -n argocd annotate application "${APP}" argocd.argoproj.io/refresh=hard --overwrite >/dev/null
@@ -133,6 +325,7 @@ survived="$(kubectl get rollout storefront -n "${NS}" -o jsonpath='{.spec.templa
 if [ "${survived}" = "webhook-sim" ]; then
   _pass "with ignoreDifferences AND RespectIgnoreDifferences, a sync no longer strips the field back out"
 else
+  dump_digest "step 2, after ignoreDifferences plus RespectIgnoreDifferences" step2
   _fail "the field was still removed even with ignoreDifferences + RespectIgnoreDifferences set: the fix this lesson teaches does not hold on this cluster"
 fi
 
