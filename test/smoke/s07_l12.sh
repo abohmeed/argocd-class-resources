@@ -23,8 +23,12 @@ tier cluster
 # any verdict is reached. The changes from the original, all in this file (lib.sh is untouched):
 #   - Every step header carries a UTC time. step, _fail and the EXIT trap are redefined here only.
 #     _fail keeps lib.sh's body and records its message for the DIAG SUMMARY.
-#   - The verdict commands run as before: the logs read under timeout 20 (as before), the Pod delete
-#     with NO bound (as before). Their output and exit code are captured so the summary can print them.
+#   - The verdict commands: the logs read under timeout 20, the Pod delete as the Argo CD API's DELETE
+#     under a 60 s curl bound (api_delete_pod). Their output and exit code are captured so the summary can print them.
+#   - 2026-10-13 fix (CI run 3): the logs and the Pod delete are judged by their output, not their exit code.
+#     argocd app logs exits 0 after streaming the refusal as a log line. argocd app delete-resource cannot address
+#     a Pod ("no matching resource found"), so the delete goes through the API, as the UI's Delete button sends it.
+#     Before the reads, the grant prepare.sh gives argocd-server (act as this ServiceAccount, nothing more) is applied.
 #   - Read-only queries before the verdicts (app state at sync time, the argocd-cm flag read back, the
 #     managed resources list) sit outside every wait loop. wait_for_sync is untouched.
 #   - On failure only, diagnose_failure runs from the EXIT trap, before cleanup. Each query is bounded
@@ -32,9 +36,8 @@ tier cluster
 #     A TERM from the runner's timeout stops the probes at once: the TERM handler prints the summary and
 #     runs cleanup itself (the runner allows 15 s after the signal, and the probes need more). See on_term.
 #   - EXIT-TIME WRITE: when the logs check fails, the Pod delete the verdict would have run is run once
-#     more as a probe, after the verdict, with the same command (argocd app delete-resource through
-#     impersonation). The namespace is disposable and cleanup deletes it anyway. It is skipped when the
-#     delete check itself ran.
+#     more as a probe, after the verdict, with the same request (api_delete_pod). The namespace is disposable
+#     and cleanup deletes it anyway. It is skipped when the delete check itself ran.
 #   - run_all.sh prints only the LAST 20 lines of a failing script, so DIAG SUMMARY, printed last
 #     (about 15 lines), carries the facts that separate the candidate causes. The detail above is for a full run.
 # ---------------------------------------------------------------------------
@@ -73,6 +76,17 @@ run_capture() {
 }
 # late: true once 120 s have passed since the verdict. Diagnostic probes stop starting then.
 late() { [ $(( $(date +%s) - DIAG_T0 )) -ge 120 ]; }
+# api_delete_pod [seconds]: the Pod delete the Argo CD UI's Delete button sends (DELETE /api/v1/applications/{app}/resource),
+# with the session token the argocd CLI stored at login. Prints the response body: "{}" on success (an empty
+# ApplicationResponse), a JSON error on refusal. argocd app delete-resource is not used: the CLI looks the Pod up in
+# ManagedResources, which holds only objects declared in Git, so it exits "no matching resource found" before any
+# request reaches the server (take of 2026-10-07). Same request as test/smoke/s07_l07.sh.
+api_delete_pod() {
+  local token secs="${1:-60}"
+  token="$(awk '/auth-token:/{print $NF; exit}' "${HOME}/.config/argocd/config" 2>/dev/null || true)"
+  curl -sS -k --max-time "${secs}" -X DELETE -H "Content-Type: application/json" -H "Authorization: Bearer ${token}" \
+    "https://argocd.local/api/v1/applications/${APP}/resource?namespace=${NS}&resourceName=${POD_NAME}&version=v1&kind=Pod&group="
+}
 
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
 PROJ="s07l12-probe"
@@ -227,10 +241,10 @@ diagnose_failure() {
     if late; then
       diag "time budget spent: the exit-time delete probe was skipped"
     else
-      diag "Pod delete probe (WRITE, bounded 30 s): the command the delete check judges, run after the verdict because the logs check exited first"
-      run_capture 30 argocd app delete-resource "${APP}" --kind Pod --resource-name "${POD_NAME}" --namespace "${NS}" --grpc-web
+      diag "Pod delete probe (WRITE, bounded 30 s): the same API request the delete check judges, run after the verdict because the logs check exited first"
+      run_capture 0 api_delete_pod 30
       DEL_OUT="${CAP_OUT}"; DEL_RC="${CAP_RC}"; DEL_SRC="exit-time probe"
-      diag "Pod delete probe exit=${DEL_RC}; first line: $(printf '%s\n' "${DEL_OUT}" | head -n 1 | cut -c1-150 || true)"
+      diag "Pod delete probe curl exit=${DEL_RC}; first line: $(printf '%s\n' "${DEL_OUT}" | head -n 1 | cut -c1-150 || true)"
     fi
   fi
 
@@ -352,6 +366,42 @@ POD_NAME="$(kubectl get pods -n "${NS}" -o jsonpath='{.items[0].metadata.name}' 
 diag "target Pod=${POD_NAME:-<none>}"
 [ -n "${POD_NAME}" ] || _fail "no Pod found in ${NS} after a reported sync"
 
+step "argocd-server may act as the scoped ServiceAccount, for get on pods/log and delete on pods, and nothing else"
+# Stock argocd-server has no impersonate-on verb, so without this grant its impersonated requests are refused by
+# Kubernetes before the ServiceAccount's own Role is checked ("cannot impersonate-on:serviceaccount:get resource
+# pods/log", take of 2026-10-08). This is the grant prepare.sh adds (ACD-163 retake fix, 2026-10-11): this
+# ServiceAccount, in this namespace, and no other. The delete rule is the same kind of grant for the delete verb:
+# the impersonation check is keyed on the request's verb, so a DELETE needs its own rule. prepare.sh grants only
+# the get rule; without the delete rule the Pod delete would be refused by argocd-server, not by the ServiceAccount.
+cat <<EOF | kubectl apply -f - >/dev/null
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: argocd-server-impersonate-${SA}, namespace: ${NS}}
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    resourceNames: ["${SA}"]
+    verbs: ["impersonate"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["impersonate-on:serviceaccount:get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["impersonate-on:serviceaccount:delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: argocd-server-impersonate-${SA}, namespace: ${NS}}
+subjects:
+  - {kind: ServiceAccount, name: argocd-server, namespace: argocd}
+roleRef: {kind: Role, name: argocd-server-impersonate-${SA}, apiGroup: rbac.authorization.k8s.io}
+EOF
+[ "$(kubectl auth can-i 'impersonate-on:serviceaccount:get' pods --subresource=log --namespace "${NS}" --as=system:serviceaccount:argocd:argocd-server 2>/dev/null || true)" = "yes" ] \
+  || _fail "argocd-server cannot act as ${SA} for get on pods/log: the grant above did not take"
+[ "$(kubectl auth can-i 'impersonate-on:serviceaccount:delete' pods --namespace "${NS}" --as=system:serviceaccount:argocd:argocd-server 2>/dev/null || true)" = "yes" ] \
+  || _fail "argocd-server cannot act as ${SA} for delete on pods: the grant above did not take"
+diag "argocd-server may act as ${SA} for get on pods/log and delete on pods (scoped grant applied)"
+
 step "reach argocd-server as admin: an account whose OWN Argo CD RBAC has no reason to be denied logs or delete"
 up="no"
 # The lesson logs in through argocd.local (Do.md, S02-L08 step 12): Traefik terminates TLS on 443 with a
@@ -373,24 +423,33 @@ LOGS_RC="${rc}"; LOGS_OUT="${out}"; LOGS_SECS=$(( $(date +%s) - t0 ))
 diag "argocd app logs exit=${rc} after ${LOGS_SECS}s (exit 124 = the 20s bound was hit); output lines: $(printf '%s\n' "${out}" | wc -l | tr -d ' ')"
 diag "output markers: cannot-impersonate=$(count_in "${out}" 'cannot impersonate') pods/log=$(count_in "${out}" 'pods/log') forbidden=$(count_in "${out}" 'forbidden') perm-denied=$(count_in "${out}" 'permission denied|PermissionDenied') no-pods=$(count_in "${out}" 'no pods|no matching|not found') SA-name=$(count_in "${out}" "${SA}")"
 printf '%s\n' "${out}" | head -n 8 | cut -c1-220 | sed 's/^/    logs| /' || true
-if [ "${rc}" -eq 0 ]; then
-  _fail "admin could read logs through the impersonated app: the impersonated ServiceAccount has no pods/log permission, so this should have been refused underneath, regardless of admin's own Argo CD RBAC"
+# Argo CD streams a per-pod Kubernetes error back as a log line and the CLI exits 0 after it, so the exit code says
+# nothing here. The refusal is read from the text: it must come from the scoped ServiceAccount's own RBAC.
+if grep -q 'cannot impersonate' <<<"${out}"; then
+  _fail "argocd-server was refused the impersonation itself (the grant above did not reach it), so the SA's RBAC never decided this read (exit ${rc}): ${out}"
+elif grep -qF "User \"system:serviceaccount:${NS}:${SA}\" cannot get resource \"pods/log\"" <<<"${out}"; then
+  _pass "admin's logs read refused (exit ${rc}) by Kubernetes RBAC on the impersonated ServiceAccount (no pods/log): policy.csv was not the layer that said no"
 else
-  _pass "admin's logs read refused (exit ${rc}): Kubernetes RBAC on the impersonated identity overrides what admin's own Argo CD RBAC would otherwise allow"
+  _fail "admin's logs read was not refused by the impersonated ServiceAccount's RBAC (exit ${rc}): ${out}"
 fi
 
 step "admin's own Pod delete is refused the same way"
 DEL_REACHED="yes"
-diag "managed resources that argocd app delete-resource can target (first 12 lines):"
+diag "managed resources as the CLI lists them (a Pod is not one of them; the delete uses api_delete_pod), first 12 lines:"
 timeout 20 argocd app resources "${APP}" --grpc-web 2>&1 | head -n 12 | cut -c1-160 | sed 's/^/    res| /' || true
-run_capture 0 argocd app delete-resource "${APP}" --kind Pod --resource-name "${POD_NAME}" --namespace "${NS}" --grpc-web
+# The UI's own request, with admin's session token (api_delete_pod). The CLI cannot address a Pod.
+run_capture 0 api_delete_pod 60
 DEL_OUT="${CAP_OUT}"; DEL_RC="${CAP_RC}"; DEL_SRC="verdict"
-diag "argocd app delete-resource exit=${DEL_RC}; output first lines:"
-printf '%s\n' "${DEL_OUT}" | head -n 6 | cut -c1-220 | sed 's/^/    delete| /' || true
-if [ "${DEL_RC}" -eq 0 ]; then
+diag "DELETE /api/v1/applications/${APP}/resource for Pod ${POD_NAME}: curl exit=${DEL_RC}; response first line: $(printf '%s\n' "${DEL_OUT}" | head -n 1 | cut -c1-150 || true)"
+printf '%s\n' "${DEL_OUT}" | head -n 3 | cut -c1-220 | sed 's/^/    delete| /' || true
+if [ "$(printf '%s' "${DEL_OUT}" | tr -d '[:space:]')" = "{}" ]; then
   _fail "admin deleted the Pod through the impersonated app: the SA's Role only grants get/list/watch on Pods, delete should have been refused"
+elif grep -q 'cannot impersonate' <<<"${DEL_OUT}"; then
+  _fail "argocd-server was refused the impersonation itself for delete, so the SA's RBAC never decided this request: ${DEL_OUT}"
+elif grep -q 'cannot delete resource' <<<"${DEL_OUT}" && grep -qF "system:serviceaccount:${NS}:${SA}" <<<"${DEL_OUT}"; then
+  _pass "Pod delete refused by Kubernetes RBAC on the impersonated ServiceAccount: its Role has no delete on pods, whatever admin's own reach"
 else
-  _pass "Pod delete refused: the impersonated SA never had delete on Pods, and impersonation means that is what actually governs, not admin's own reach"
+  _fail "admin's Pod delete was not refused by the impersonated ServiceAccount's RBAC (curl exit ${DEL_RC}): ${DEL_OUT}"
 fi
 
 smoke_done

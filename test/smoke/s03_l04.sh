@@ -1,24 +1,29 @@
 #!/usr/bin/env bash
 # lesson: s03_l04 Writing a custom health check for a CRD Argo CD doesn't understand
-# Argo CD has no opinion about a Certificate; the Lua health check gives it one.
+# Argo CD has no opinion about a k3s HelmChart; the Lua health check gives it one.
 #
-# The lesson's claim: a cert-manager Certificate, once created, reads Healthy in Argo CD's
-# DEFAULT health computation regardless of whether cert-manager ever actually issues it: Argo
-# CD has no built-in rule for a kind it doesn't recognize, so it defaults to Healthy the instant
-# the object exists. Only a custom Lua health check
-# (resource.customizations.health.cert-manager.io_Certificate) makes the reported status track
-# the real `status.conditions[type=Ready]` value. This is proven two ways below: a Certificate
-# that can NEVER issue (bad issuerRef, so there is no timing race: it stays Ready:False
-# forever) still reads Healthy under the default rules, and reads Progressing once the Lua check
-# is active; a real one, with the Lua check active, reads Healthy only once it is genuinely
-# Ready.
+# The lesson's claim (Do.md and Talk.md, premise approved 2026-10-12): Argo CD v3.5.3 has no health
+# rule for helm.cattle.io/HelmChart, so under DEFAULT rules the HelmChart row carries no health value
+# at all and the Application does not go Degraded, even while the install job behind the HelmChart
+# has failed. With the lesson's Lua check (Failed=True reads Degraded, JobCreated=True reads Healthy)
+# the same failing HelmChart reads Degraded with the helm controller's own message, and Healthy once
+# it is pinned to a published chart version (6.9.4).
 #
-# argocd-cm is itself GitOps-managed by the `argocd` self-manage Application with
-# selfHeal:true (from the self-management lesson, s02_l10.sh): a live `kubectl patch` of it alone would be reverted within
-# seconds, so this script disables that Application's own selfHeal for the duration of the
-# patch, exactly the way the lesson insists this must go through Git in real use, and
-# restores it (and argocd-cm) in cleanup regardless of how the script exits.
+# This script used to prove the claim with a cert-manager Certificate. That premise is gone: Argo CD
+# v3.5.3 ships a built-in health check for that kind, so a Certificate cannot show the false positive
+# the lesson opens on.
+#
+# argocd-cm is itself GitOps-managed by the argocd self-manage Application with selfHeal:true
+# (s02_l10.sh): a live patch of it alone would be reverted within seconds, so this script turns that
+# Application's selfHeal off for the duration of the patch, and restores it in cleanup.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
+
+APP="s03l04-probe"
+NS="s03l04-probe"
+ROW="s03l04-podinfo"
+HC_KEY="resource.customizations.health.helm.cattle.io_HelmChart"
+TMPDIR="$(mktemp -d)"
+LUA_PATCH="${TMPDIR}/argocd-cm-patch.yaml"
 
 # ---------------------------------------------------------------------------------------------
 # Diagnostics for the CI failure of this script (the "got empty" at the default-rules check).
@@ -49,15 +54,13 @@ diag_cluster() {
   echo "    application-controller pod started: $(kubectl get pod -n argocd -l app.kubernetes.io/name=argocd-application-controller -o jsonpath='{.items[0].status.startTime}' 2>/dev/null || true)"
   echo "    self-manage Application argocd: selfHeal=$(kubectl get application argocd -n argocd -o jsonpath='{.spec.syncPolicy.automated.selfHeal}' 2>/dev/null || true) sync=$(kubectl get application argocd -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || true) health=$(kubectl get application argocd -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
   echo "    argocd-cm resource.customizations keys (names only): $(kubectl get configmap argocd-cm -n argocd -o json 2>/dev/null | jq -r '(.data // {}) | keys[] | select(startswith("resource.customizations"))' 2>/dev/null | tr '\n' ' ' | cut -c1-600 || true)"
-  echo "    cert-manager deployments (ready/desired): $(kubectl get deploy -n cert-manager -o jsonpath='{range .items[*]}{.metadata.name}={.status.readyReplicas}/{.spec.replicas} {end}' 2>/dev/null || true)"
-  echo "    cert-manager-webhook endpoint IPs: $(kubectl get endpoints cert-manager-webhook -n cert-manager -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null || true)"
-  echo "    Certificate CRD: $(kubectl get crd certificates.cert-manager.io -o name 2>/dev/null || echo absent)"
-  echo "    ClusterIssuers: $(kubectl get clusterissuer -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)"
+  echo "    helmcharts.helm.cattle.io CRD: $(kubectl get crd helmcharts.helm.cattle.io -o name 2>/dev/null || echo absent)"
+  echo "    HelmChart objects in ${NS}: $(kubectl get helmchart -n "${NS}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)"
 }
 
 # diag_app <label>: the probe Application as Argo CD holds it right now. Which rows it reports,
 # what the last operation was and who started it, when it last reconciled, what the sync result
-# says about each s03l04 object, what the live Certificate looks like, and the controller's own
+# says about each s03l04 object, what the live HelmChart looks like, and the controller's own
 # log lines for this app. The spec fields (project, source shape, destination) are printed too,
 # so a wrong destination or source shows up here.
 diag_app() {
@@ -86,18 +89,20 @@ diag_app() {
   echo "    status.resources names: $(printf '%s' "${app_json}" | jq -r '[.status.resources[]? | .name] | join(",")' 2>/dev/null | cut -c1-600 || true)"
   printf '%s' "${app_json}" | jq -c '[.status.resources[]? | select((.name // "") | startswith("s03l04")) | {name, kind, status, health: (.health.status // null), healthMessage: ((.health.message // "") | .[0:160])}]' 2>/dev/null | sed 's/^/    rows: /' || true
   printf '%s' "${app_json}" | jq -c '[.status.operationState.syncResult.resources[]? | select((.name // "") | startswith("s03l04")) | {name, kind, status, hookPhase, syncPhase, message: ((.message // "") | .[0:200])}]' 2>/dev/null | sed 's/^/    syncResult: /' || true
-  local certs_json certs_view
-  certs_json="$(kubectl get certificate -n "${NS}" -o json 2>/dev/null || true)"
-  if [ -z "${certs_json}" ]; then
-    echo "    live Certificates: none readable (no Certificate object, or the CRD is absent)"
+  local hc_json hc_view
+  hc_json="$(kubectl get helmchart -n "${NS}" -o json 2>/dev/null || true)"
+  if [ -z "${hc_json}" ]; then
+    echo "    live HelmChart objects: none readable (the CRD is absent, or kubectl failed)"
   else
-    certs_view="$(printf '%s' "${certs_json}" | jq -c '[.items[]? | {name: .metadata.name, conditions: [.status.conditions[]? | {type, status, reason, message: ((.message // "") | .[0:200])}]}]' 2>/dev/null || true)"
-    if [ "${certs_view}" = "[]" ]; then
-      echo "    live Certificates: none (the namespace holds no Certificate object)"
+    hc_view="$(printf '%s' "${hc_json}" | jq -c '[.items[]? | {name: .metadata.name, conditions: [.status.conditions[]? | {type, status, reason, message: ((.message // "") | .[0:200])}]}]' 2>/dev/null || true)"
+    if [ "${hc_view}" = "[]" ]; then
+      echo "    live HelmChart objects: none (the namespace holds no HelmChart object)"
     else
-      echo "    live Certificates: $(printf '%s' "${certs_view:-unparseable}" | cut -c1-600)"
+      echo "    live HelmChart objects: $(printf '%s' "${hc_view:-unparseable}" | cut -c1-600)"
     fi
   fi
+  echo "    jobs in ${NS} (the helm controller's install jobs, first 5):"
+  kubectl get jobs -n "${NS}" --no-headers 2>/dev/null | head -n 5 | cut -c1-200 | sed 's/^/      /' || true
   echo "    controller log lines naming s03l04 (last 15 min, at most 25):"
   kubectl logs -n argocd statefulset/argocd-application-controller --since=15m 2>/dev/null \
     | grep -E 's03l04' | tail -n 25 | cut -c1-260 | sed 's/^/      /' || true
@@ -108,7 +113,7 @@ diag_app() {
 }
 
 # observe_timeline <resource name>: read-only, 12 samples over 60 s. It runs only AFTER the
-# 15 s read has already been judged, so it cannot change that verdict. It shows whether the row
+# read has already been judged, so it cannot change that verdict. It shows whether the row
 # ever gains a health value, and when, which separates "not yet reconciled" from "never computed".
 # It sets TL_FIRST to the first sample that carried a health value (or to "none in 60 s").
 observe_timeline() {
@@ -135,14 +140,57 @@ recap() {
   local j
   j="$(kubectl get application "${APP}" -n argocd -o json 2>/dev/null || true)"
   echo "  [RECAP s03_l04] $1 judged value: [${2:-empty}]"
-  echo "  [RECAP s03_l04] exits: broken sync ${sync_rc}, hard-refresh ${hr_rc}, good sync ${good_sync_rc} (124 = the bound fired); timeline first health: ${TL_FIRST:-not read}"
+  echo "  [RECAP s03_l04] exits: broken sync ${sync_rc}, hard-refresh ${hr_rc}, good sync ${good_sync_rc} (not judged); timeline first health: ${TL_FIRST:-not read}"
   printf '%s' "${j}" | jq -r '"  [RECAP s03_l04] app sync=\(.status.sync.status // "unknown") health=\(.status.health.status // "unknown") opPhase=\(.status.operationState.phase // "none") initiatedBy=\(.status.operationState.operation.initiatedBy // "none") reconciledAt=\(.status.reconciledAt // "none") opFinishedAt=\(.status.operationState.finishedAt // "none")"' 2>/dev/null \
     || echo "  [RECAP s03_l04] app: not readable"
   printf '%s' "${j}" | jq -r '"  [RECAP s03_l04] rows: " + ([.status.resources[]? | select((.name // "") | startswith("s03l04")) | "\(.name)=\(.health.status // "null")"] | join(", "))' 2>/dev/null \
     || true
 }
 
-lesson S03-L04 "a Certificate reads Healthy by default before issuance; only the Lua health check reports the real Ready condition"
+# row_health: the health value Argo CD reports for the HelmChart row (empty when it reports none).
+row_health() {
+  kubectl get application "${APP}" -n argocd \
+    -o jsonpath="{.status.resources[?(@.name==\"${ROW}\")].health.status}" 2>/dev/null || true
+}
+
+# row_message: the health message Argo CD reports for the HelmChart row (empty when none).
+row_message() {
+  kubectl get application "${APP}" -n argocd \
+    -o jsonpath="{.status.resources[?(@.name==\"${ROW}\")].health.message}" 2>/dev/null || true
+}
+
+# write_chart <dir> <version>: the HelmChart from the lesson, pinned to <version>.
+write_chart() {
+  mkdir -p "$1"
+  cat > "$1/helmchart.yaml" <<CHART
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: ${ROW}
+spec:
+  repo: https://stefanprodan.github.io/podinfo
+  chart: podinfo
+  version: $2
+  targetNamespace: ${NS}
+  backOffLimit: 1
+CHART
+}
+
+# wait_for_row <seconds>: the HelmChart row is listed in the probe Application's status.
+wait_for_row() {
+  local deadline name
+  deadline=$(( $(date +%s) + $1 ))
+  while [ "$(date +%s)" -lt "${deadline}" ]; do
+    argocd app get "${APP}" --refresh >/dev/null 2>&1 || true
+    name="$(kubectl get application "${APP}" -n argocd \
+      -o jsonpath="{.status.resources[?(@.name==\"${ROW}\")].name}" 2>/dev/null || true)"
+    [ "${name}" = "${ROW}" ] && return 0
+    sleep 5
+  done
+  return 1
+}
+
+lesson S03-L04 "a HelmChart carries no health under default rules, so the Application does not go Degraded while the install fails; the Lua health check reads Degraded, then Healthy"
 tier cluster
 
 # This lesson is proven through Argo CD's own API layer, so the CLI needs a session. On a
@@ -151,27 +199,22 @@ tier cluster
 # unconfigured environment.
 argocd_cli_ready
 
-step "preconditions from the TLS lesson (s02_l08.sh): cert-manager and selfsigned-issuer must already be on the cluster"
-kubectl get deploy -n cert-manager >/dev/null 2>&1 \
-  || _fail "no cert-manager deployment found: it comes from the TLS lesson (s02_l08.sh), not this one; run that lesson's setup before this script"
-kubectl get clusterissuer selfsigned-issuer >/dev/null 2>&1 \
-  || _fail "ClusterIssuer selfsigned-issuer not found: the TLS lesson's setup (s02_l08.sh) is missing; run it first"
-_pass "cert-manager and selfsigned-issuer are present"
-diag_cluster "after the TLS preconditions, before this script changes anything"
+step "preconditions: k3s's helm controller serves the HelmChart kind this lesson uses"
+kubectl get crd helmcharts.helm.cattle.io >/dev/null 2>&1 \
+  || _fail "CRD helmcharts.helm.cattle.io is not served: k3s's helm controller is missing, so the lesson's HelmChart cannot run on this cluster (environment fault)"
+_pass "helmcharts.helm.cattle.io is served"
+diag_cluster "after the precondition check, before this script changes anything"
 
-step "confirm the argocd Application (self-management) exists, name and shape from the self-management lesson (s02_l10.sh)"
+step "confirm the argocd Application (self-management) exists, from s02_l10.sh"
 kubectl get application argocd -n argocd >/dev/null 2>&1 \
   || _fail "no Application named 'argocd' in the argocd namespace: the self-management from s02_l10.sh is missing; this script cannot safely test the Lua-through-Git claim without it"
-
-APP="s03l04-probe"
-NS="s03l04-probe"
-TMPDIR="$(mktemp -d)"
-LUA_PATCH="${TMPDIR}/argocd-cm-patch.yaml"
+_pass "argocd (self-management) Application is present"
 
 cleanup() {
-  # Restore argocd-cm to its committed (vanilla) shape...
+  # Remove only the key this script added. The committed argocd-cm carries other data (for example
+  # application.resourceTrackingMethod), which a whole-/data removal would take out with it.
   kubectl patch configmap argocd-cm -n argocd --type json \
-    -p '[{"op":"remove","path":"/data"}]' >/dev/null 2>&1 || true
+    -p "[{\"op\":\"remove\",\"path\":\"/data/${HC_KEY}\"}]" >/dev/null 2>&1 || true
   # ...and put the argocd Application's own selfHeal back on, exactly as bootstrap/self-manage-app.yaml commits it.
   kubectl patch application argocd -n argocd --type merge \
     -p '{"spec":{"syncPolicy":{"automated":{"selfHeal":true,"prune":false}}}}' >/dev/null 2>&1 || true
@@ -184,7 +227,7 @@ trap cleanup EXIT
 kubectl create namespace "${NS}" >/dev/null 2>&1 || true
 
 step "create the probe Application: its own namespace, manual sync, nothing pruned"
-cat <<EOF | kubectl apply -f - >/dev/null
+cat <<PROBE | kubectl apply -f - >/dev/null
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata: {name: ${APP}, namespace: argocd}
@@ -195,125 +238,123 @@ spec:
   source: {repoURL: "https://github.com/abohmeed/argocd-class-resources.git", targetRevision: baseline/before-rollouts, path: apps/storefront/base}
   destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
   syncPolicy: {}
-EOF
+PROBE
 diag_app "probe Application created, nothing synced yet (does it exist, what is its shape)"
 
-step "sync a Certificate that can NEVER issue (bad issuerRef): no timing race, it stays Ready:False forever"
-mkdir -p "${TMPDIR}/broken"
-cat > "${TMPDIR}/broken/certificate.yaml" <<EOF
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: s03l04-broken
-spec:
-  secretName: s03l04-broken-tls
-  dnsNames: ["storefront.northwind.local"]
-  issuerRef:
-    name: s03l04-nonexistent-issuer
-    kind: ClusterIssuer
-EOF
+step "sync a HelmChart pinned to a chart version that does not exist (6.99.0)"
+write_chart "${TMPDIR}/broken" 6.99.0
 t_sync="$(date -u +%H:%M:%S)"
 sync_rc=0
 sync_out="$(trap - ERR; argocd app sync "${APP}" --local "${TMPDIR}/broken" 2>&1)" || sync_rc=$?
-echo "  [diag sync] broken Certificate: started ${t_sync}, returned $(date -u +%H:%M:%S), exit ${sync_rc} (124 means the 120 s bound fired; the exit code is still not judged)"
+echo "  [diag sync] broken HelmChart: started ${t_sync}, returned $(date -u +%H:%M:%S), exit ${sync_rc} (not judged here; the row check below judges the outcome)"
 printf '%s\n' "${sync_out}" | head -n 25 | cut -c1-300 | sed 's/^/    sync output: /' || true
-sleep 15
-
-step "under DEFAULT (uncustomized) health rules, Argo CD reports it Healthy anyway"
-health="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.status.resources[?(@.name=="s03l04-broken")].health.status}' 2>/dev/null || true)"
-printf '  [diag check] judged value, raw jsonpath output: [%s]\n' "${health}"
-diag_app "the default-rules read, same moment as the judged value"
-diag_cluster "same moment as the default-rules read"
-if [ "${health}" = "Healthy" ]; then
-  _pass "a Certificate that will NEVER issue still reads Healthy under Argo CD's default rules: the false positive the lesson opens on"
-else
-  observe_timeline "s03l04-broken"
-  recap "default-rules read" "${health}"
-  _fail "expected the default rules to report Healthy for an unrecognized kind, got '${health:-empty}': either Argo CD gained a built-in cert-manager health check or this repo's default health behaviour has changed; the problem the lesson opens on no longer reproduces"
+if ! wait_for_row 120; then
+  diag_app "the HelmChart row was never listed in the probe Application's status"
+  recap "row listing" "absent"
+  _fail "the HelmChart ${ROW} never appeared in the probe Application's status within 120 s (see the sync output above, if the CLI sync failed)"
 fi
 
-step "write the Lua health check through a (temporary, self-cleaning) argocd-cm patch, not a live one-off edit"
+step "its install job really fails: the helm controller marks the HelmChart Failed=True"
+failed=""
+deadline=$(( $(date +%s) + 240 ))
+while [ "$(date +%s)" -lt "${deadline}" ]; do
+  failed="$(kubectl get helmchart "${ROW}" -n "${NS}" -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || true)"
+  [ "${failed}" = "True" ] && break
+  sleep 5
+done
+if [ "${failed}" = "True" ]; then
+  _pass "the HelmChart reports Failed=True: the install behind it has failed"
+else
+  diag_app "the HelmChart never reported Failed=True (the install job did not run, or did not fail)"
+  recap "install failure" "${failed:-empty}"
+  _fail "expected the HelmChart to report Failed=True within 240s, got '${failed:-empty}': the helm controller did not run the install job to failure, so the lesson's failure does not reproduce on this cluster"
+fi
+
+step "under DEFAULT (uncustomized) health rules, the HelmChart carries no health and the Application does not go Degraded"
+health="$(row_health)"
+app_health="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
+printf '  [diag check] judged values, raw jsonpath output: row=[%s] application=[%s]\n' "${health}" "${app_health}"
+diag_app "the default-rules read, same moment as the judged value"
+diag_cluster "same moment as the default-rules read"
+if [ -z "${health}" ] && [ -n "${app_health}" ] && [ "${app_health}" != "Degraded" ]; then
+  _pass "no health value on the HelmChart, and the Application reads ${app_health} while its install has failed: the false positive the lesson opens on"
+else
+  observe_timeline "${ROW}"
+  recap "default-rules read" "row=${health:-empty} application=${app_health:-empty}"
+  _fail "expected no health value on the HelmChart and an Application that is not Degraded under default rules, got row health '${health:-empty}' and Application health '${app_health:-empty}': either Argo CD gained a built-in helm.cattle.io check, or the Application now rolls up the failed install"
+fi
+
+step "write the Lua health check through a temporary argocd-cm patch, not a live one-off edit"
 kubectl patch application argocd -n argocd --type merge \
   -p '{"spec":{"syncPolicy":{"automated":{"selfHeal":false,"prune":false}}}}' >/dev/null
-cat > "${LUA_PATCH}" <<'EOF'
+cat > "${LUA_PATCH}" <<'LUA'
 data:
-  resource.customizations.health.cert-manager.io_Certificate: |
+  resource.customizations.health.helm.cattle.io_HelmChart: |
     hs = {}
     if obj.status ~= nil and obj.status.conditions ~= nil then
       for i, condition in ipairs(obj.status.conditions) do
-        if condition.type == "Ready" then
-          if condition.status == "False" then
-            hs.status = "Progressing"
-            hs.message = condition.message
-            return hs
-          end
-          if condition.status == "True" then
-            hs.status = "Healthy"
-            hs.message = condition.message
-            return hs
-          end
+        if condition.type == "Failed" and condition.status == "True" then
+          hs.status = "Degraded"
+          hs.message = condition.message
+          return hs
+        end
+      end
+      for i, condition in ipairs(obj.status.conditions) do
+        if condition.type == "JobCreated" and condition.status == "True" then
+          hs.status = "Healthy"
+          hs.message = condition.message
+          return hs
         end
       end
     end
     hs.status = "Progressing"
-    hs.message = "Waiting for certificate status"
+    hs.message = "Waiting for the helm controller"
     return hs
-EOF
+LUA
 kubectl patch configmap argocd-cm -n argocd --type merge --patch-file "${LUA_PATCH}" >/dev/null
-diag_cluster "after the Lua override was written (the cert-manager Certificate key should now be listed; selfHeal should read false)"
+diag_cluster "after the Lua override was written (the HelmChart key should now be listed; selfHeal should read false)"
 
-step "same never-issuing Certificate, now reads honest: Progressing, not Healthy"
+step "same failing HelmChart, now reads honest: Degraded, with the helm controller's own message"
 hr_rc=0
 hr_out="$(trap - ERR; argocd app get "${APP}" --hard-refresh 2>&1)" || hr_rc=$?
-echo "  [diag] argocd app get --hard-refresh: exit ${hr_rc} (124 means the 30 s bound fired), first line: $(printf '%s' "${hr_out}" | head -n 1 | cut -c1-200 || true)"
-deadline=$(( $(date +%s) + 60 ))
+echo "  [diag] argocd app get --hard-refresh: exit ${hr_rc} (not judged), first line: $(printf '%s' "${hr_out}" | head -n 1 | cut -c1-200 || true)"
+deadline=$(( $(date +%s) + 120 ))
 health=""
 while [ "$(date +%s)" -lt "${deadline}" ]; do
-  health="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.status.resources[?(@.name=="s03l04-broken")].health.status}' 2>/dev/null || true)"
-  [ "${health}" = "Progressing" ] && break
+  argocd app get "${APP}" --refresh >/dev/null 2>&1 || true
+  health="$(row_health)"
+  [ "${health}" = "Degraded" ] && break
   sleep 5
 done
-if [ "${health}" = "Progressing" ]; then
-  _pass "with the Lua check active, the same never-issuing Certificate now reads Progressing: health tracks the real Ready condition"
+if [ "${health}" = "Degraded" ]; then
+  _pass "with the Lua check active the HelmChart reads Degraded (controller message: $(row_message | cut -c1-160)): health now tracks the install's real failure"
 else
-  diag_app "the Lua-active read, after the 60 s poll (the Certificate row should read Progressing)"
-  recap "Lua-active read" "${health}"
-  _fail "expected Progressing once the Lua health check was active, got '${health:-empty}': the Lua customization did not take effect, or its condition-reading logic is broken"
+  diag_app "the Lua-active read, after the 120 s poll (the HelmChart row should read Degraded)"
+  recap "Lua-active read" "${health:-empty}"
+  _fail "expected Degraded once the Lua check sees Failed=True, got '${health:-empty}': the customization did not take effect, or its condition logic is broken"
 fi
 
-step "a Certificate that CAN issue reads Healthy only once it genuinely is"
-mkdir -p "${TMPDIR}/good"
-cat > "${TMPDIR}/good/certificate.yaml" <<EOF
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: s03l04-good
-spec:
-  secretName: s03l04-good-tls
-  dnsNames: ["storefront.northwind.local"]
-  issuerRef:
-    name: selfsigned-issuer
-    kind: ClusterIssuer
-EOF
+step "pin the HelmChart to a published chart version (6.9.4): a fresh install job runs and the HelmChart reads Healthy"
+write_chart "${TMPDIR}/good" 6.9.4
 t_good="$(date -u +%H:%M:%S)"
 good_sync_rc=0
 good_sync_out="$(trap - ERR; argocd app sync "${APP}" --local "${TMPDIR}/good" 2>&1)" || good_sync_rc=$?
-echo "  [diag sync] good Certificate: started ${t_good}, returned $(date -u +%H:%M:%S), exit ${good_sync_rc} (124 means the 120 s bound fired; the exit code is still not judged)"
+echo "  [diag sync] corrected HelmChart: started ${t_good}, returned $(date -u +%H:%M:%S), exit ${good_sync_rc} (not judged here; the row check below judges the outcome)"
 printf '%s\n' "${good_sync_out}" | head -n 25 | cut -c1-300 | sed 's/^/    sync output: /' || true
-deadline=$(( $(date +%s) + 90 ))
+deadline=$(( $(date +%s) + 180 ))
 good_health=""
 while [ "$(date +%s)" -lt "${deadline}" ]; do
   argocd app get "${APP}" --refresh >/dev/null 2>&1 || true
-  good_health="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.status.resources[?(@.name=="s03l04-good")].health.status}' 2>/dev/null || true)"
+  good_health="$(row_health)"
   [ "${good_health}" = "Healthy" ] && break
   sleep 5
 done
 if [ "${good_health}" = "Healthy" ]; then
-  _pass "the real Certificate reached Ready and the Lua check reported Healthy: the honest positive case, not just an always-Progressing stub"
+  _pass "the corrected HelmChart reads Healthy under the Lua check: the honest positive case, not just an always-Degraded stub"
 else
-  diag_app "the real Certificate, after the 90 s poll (the good row should read Healthy)"
-  recap "good Certificate read" "${good_health}"
-  _fail "the real Certificate never read Healthy under the Lua check (got '${good_health:-empty}'): either issuance failed or the check's True-condition branch is broken"
+  diag_app "the corrected HelmChart, after the 180 s poll (the row should read Healthy)"
+  recap "corrected HelmChart read" "${good_health:-empty}"
+  _fail "the corrected HelmChart never read Healthy under the Lua check (got '${good_health:-empty}'): either the 6.9.4 install failed or the JobCreated branch of the check is broken"
 fi
 
 smoke_done

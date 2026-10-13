@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 # lesson: s02_l10 Argo CD managing its own installation (self-management)
-# Argo CD manages its OWN install, and reaches Synced/Healthy without ever running
-# a real sync, because the committed manifest is byte-identical to what's running.
+# Argo CD manages its OWN install. Adopting an install that was applied by hand is one automatic
+# sync: the live objects carry no argocd.argoproj.io/tracking-id yet, so the first comparison is
+# OutOfSync, and the one sync that follows adds the tracking annotations without changing any content.
+# The check is that this adoption is clean: that one operation finished Succeeded, was initiated
+# automatically, synced the baseline revision and left no error condition. After a refresh the
+# Application stays Synced/Healthy with no further operation.
 #
-# The lesson's claim is specific: "it's already synced" the moment it's applied, with no visible
-# reconcile, because bootstrap/install.yaml is the exact tag already on the cluster. That only
-# holds if two things stay true: the committed manifest is still pinned to ${ARGOCD_PIN}, and
-# the cluster is still running ${ARGOCD_PIN}. If either drifts (a version bump on one side and
-# not the other), the self-manage Application would show OutOfSync immediately, and the
-# lesson's "already synced" point would be false the moment a student tries it.
+# The content claim the lesson rests on is that bootstrap/install.yaml is the exact tag already on the
+# cluster. That holds only if two things stay true: the committed manifest is still pinned to
+# ${ARGOCD_PIN}, and the cluster is still running ${ARGOCD_PIN}. Then kubectl diff finds no content
+# difference before the apply, and the adoption sync changes nothing but the tracking annotations. If
+# either drifts (a version bump on one side and not the other), the diff names real content and the
+# check below fails.
 #
 # Note: this script reads the Application's name out of the committed file,
 # bootstrap/self-manage-app.yaml (which names it `argocd`), rather than assuming a name, so it
@@ -53,7 +57,7 @@
 # already read, with no cluster calls, and the script exits with the same status a signal gives.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S02-L10 "the self-manage Application reaches Synced/Healthy with no real sync, because the committed install manifest matches what's running"
+lesson S02-L10 "the self-manage Application adopts its own install in one clean automatic sync and stays Synced/Healthy after a refresh, because the committed install manifest matches what's running"
 tier cluster
 
 # ---- diagnostics: helpers and state (no assertion depends on anything in this block) -------------
@@ -282,7 +286,7 @@ _print_recap() {
 
   reading="phase=${ph:-none}"
   case "${ph}" in
-    Succeeded) reading="${reading}: a real operation finished OK (H1, H4 or H7; compare lines 2 to 4)" ;;
+    Succeeded) reading="${reading}: the operation finished OK (expected for adoption, H1); real drift (H4, H7) would show in lines 2 to 4" ;;
     Failed|Error) reading="${reading}: the operation failed (H2); the cause is in line 7 and line 9" ;;
     Running|Terminating) reading="${reading}: operation still in flight (H3) or interrupted (H6)" ;;
     *) reading="${reading}: no operation state (H8, or no real sync at all)" ;;
@@ -391,19 +395,107 @@ APPLY_OUT="$(printf '%s' "${apply_out}" | tr '\n' ' ' | cut -c1-200)"
 dline "apply at ${APPLY_START} UTC: ${APPLY_OUT:-no output}"
 wait_started=$(date +%s)
 wait_for_sync "${app_name}" 180
-op_resources="$(kubectl get application "${app_name}" -n argocd -o jsonpath='{.status.operationState.syncResult.resources}' 2>/dev/null)"
 WAIT_SECS=$(( $(date +%s) - wait_started ))
 dline "wait_for_sync returned after ${WAIT_SECS}s"
 
-step "it reached Synced/Healthy WITHOUT running a real sync operation"
-# If the committed manifest actually differed from the live objects, Argo CD would have run an
-# operation with a non-empty resource list to reconcile that diff. "Already synced" means either
-# no operationState at all, or one whose syncResult touched nothing.
-_snapshot_app "${app_name}" "state read at the check"
-if [ -z "${op_resources}" ] || [ "${op_resources}" = "[]" ] || [ "${op_resources}" = "null" ]; then
-  _pass "no real sync operation ran: the committed manifest was already identical to the live cluster"
+step "the content the lesson commits was already identical to the cluster before the apply"
+# The lesson's content claim. Argo CD's adoption sync re-applies the manifest, so the claim that it
+# changes no content is only as good as this check: kubectl diff found nothing to change before apply.
+if [ "${PRE_DIFF_RC}" = "0" ] && [ "${PRE_DIFF_OBJS}" = "0" ]; then
+  _pass "kubectl diff found no content difference before the apply (0 object(s)): the adoption sync changes no content"
 else
-  _fail "a sync operation ran with resources to reconcile (${op_resources}): the manifest was NOT actually byte-identical to what's running, contradicting the lesson's 'already synced' point"
+  _fail "kubectl diff before the apply exited ${PRE_DIFF_RC} with ${PRE_DIFF_OBJS} object(s) (${PRE_DIFF_NAMES:-none}): the manifest was NOT byte-identical to what's running, contradicting the lesson's content claim"
+fi
+
+step "wait for the adoption operation to finish, then read it"
+# wait_for_sync returns on Synced/Healthy, which can come before the operation record is written. Wait,
+# bounded, for a terminal phase, so the checks below read the finished operation and not a running one.
+op_phase=""
+op_deadline=$(( $(date +%s) + 120 ))
+while [ "$(date +%s)" -lt "${op_deadline}" ]; do
+  op_phase="$(_app_raw "${app_name}" '{.status.operationState.phase}')"
+  case "${op_phase}" in Succeeded|Failed|Error) break ;; esac
+  sleep 3
+done
+_snapshot_app "${app_name}" "state read at the check"
+
+step "the one operation that ran is the automatic adoption sync, and it finished clean"
+# Adopting an install applied by hand is expected to run exactly one automatic sync: the objects carry
+# no tracking annotation yet, Argo CD marks the Application OutOfSync, and that sync adds the annotation.
+# So the test asserts that this operation is clean (terminal, successful, automatic, at the baseline
+# revision, no error condition, every result Synced). It does not assert that no operation ran.
+op_auto="$(_app_raw "${app_name}" '{.status.operationState.operation.initiatedBy.automated}')"
+op_user="$(_app_raw "${app_name}" '{.status.operationState.operation.initiatedBy.username}')"
+op_rev="$(_app_raw "${app_name}" '{.status.operationState.syncResult.revision}')"
+op_req_rev="$(_app_raw "${app_name}" '{.status.operationState.operation.sync.revision}')"
+op_msg="$(_app_raw "${app_name}" '{.status.operationState.message}' | tr '\n' ' ' | cut -c1-200 || true)"
+op_res_total="$(_app_raw "${app_name}" '{range .status.operationState.syncResult.resources[*]}{.status}{"\n"}{end}' | grep -c . || true)"
+op_res_bad="$(_app_raw "${app_name}" '{range .status.operationState.syncResult.resources[*]}{.status}{"\n"}{end}' | grep -v -x 'Synced' | wc -l | tr -d ' ' || true)"
+op_res_kinds="$(_app_raw "${app_name}" '{range .status.operationState.syncResult.resources[*]}{.status}{"\n"}{end}' | sort | uniq -c | sed -e 's/^ *//' | paste -sd, - || true)"
+err_types="$(_app_raw "${app_name}" '{range .status.conditions[*]}{.type}{"\n"}{end}' | grep -E 'Error$' | sort -u | paste -sd, - || true)"
+
+if [ "${op_phase}" = "Succeeded" ]; then
+  _pass "the operation finished Succeeded: ${op_msg:-no message}"
+else
+  _fail "the operation is '${op_phase:-none}', not Succeeded: ${op_msg:-no message}"
+fi
+if [ "${op_auto}" = "true" ] && [ -z "${op_user}" ]; then
+  _pass "the operation was initiated automatically by Argo CD (automated sync, no user), as the lesson says"
+else
+  _fail "the operation was initiated automated=${op_auto:-none} username=${op_user:-none}, not by Argo CD's automated sync: the lesson's adoption is one automatic sync"
+fi
+if [ -n "${EXPECT_SHA}" ] && [ "${op_rev}" = "${EXPECT_SHA}" ] && [ "${op_req_rev}" = "${EXPECT_SHA}" ]; then
+  _pass "the operation synced the baseline revision ${EXPECT_SHA:0:12}"
+else
+  _fail "the operation synced ${op_req_rev:-none} (result ${op_rev:-none}), not the baseline revision ${EXPECT_SHA:-unknown}"
+fi
+if [ "${op_res_total:-0}" -gt 0 ] && [ "${op_res_bad:-1}" = "0" ]; then
+  _pass "every one of the ${op_res_total} results of the operation is Synced (${op_res_kinds})"
+else
+  _fail "the operation's results are not all Synced: ${op_res_bad:-?} of ${op_res_total:-0} not Synced (${op_res_kinds:-none})"
+fi
+if [ -z "${err_types}" ]; then
+  _pass "the Application has no error condition (SyncError, ComparisonError, InvalidSpecError, UnknownError, DeletionError)"
+else
+  _fail "the Application has error condition(s): ${err_types}"
+fi
+if [ "$(_app_raw "${app_name}" '{.status.sync.status}')" = "Synced" ] && [ "$(_app_raw "${app_name}" '{.status.health.status}')" = "Healthy" ]; then
+  _pass "${app_name} reads Synced and Healthy at the check"
+else
+  _fail "${app_name} is not Synced/Healthy at the check: sync=$(_app_raw "${app_name}" '{.status.sync.status}') health=$(_app_raw "${app_name}" '{.status.health.status}')"
+fi
+
+step "after a refresh the Application stays Synced/Healthy, and no second operation starts"
+started_before="$(_app_raw "${app_name}" '{.status.operationState.startedAt}')"
+kubectl annotate application "${app_name}" -n argocd argocd.argoproj.io/refresh=normal --overwrite >/dev/null 2>&1 \
+  || _fail "could not request a refresh of ${app_name}"
+# The controller clears the refresh annotation once it has compared the Application again. Wait for
+# that (bounded), then 15 s more, so the same reconcile pass that would start an automated sync has run.
+refresh_deadline=$(( $(date +%s) + 90 ))
+refresh_pending=yes
+while [ "$(date +%s)" -lt "${refresh_deadline}" ]; do
+  refresh_note="$(_bounded 20 kubectl -n argocd get application "${app_name}" -o jsonpath='{.metadata.annotations.argocd\.argoproj\.io/refresh}' --request-timeout=15s 2>/dev/null || true)"
+  if [ -z "${refresh_note}" ]; then refresh_pending=no; break; fi
+  sleep 2
+done
+[ "${refresh_pending}" = no ] || _fail "the refresh requested for ${app_name} was not processed within 90s"
+sleep 15
+after_sync="$(_app_raw "${app_name}" '{.status.sync.status}')"
+after_health="$(_app_raw "${app_name}" '{.status.health.status}')"
+after_phase="$(_app_raw "${app_name}" '{.status.operationState.phase}')"
+after_started="$(_app_raw "${app_name}" '{.status.operationState.startedAt}')"
+after_pending="$(_app_raw "${app_name}" '{.operation}')"
+after_err="$(_app_raw "${app_name}" '{range .status.conditions[*]}{.type}{"\n"}{end}' | grep -E 'Error$' | sort -u | paste -sd, - || true)"
+dline "after refresh: sync=${after_sync:-?} health=${after_health:-?} operation phase=${after_phase:-none} startedAt=${after_started:--} (before: ${started_before:--}) pending=${after_pending:-none} error conditions=${after_err:-none}"
+if [ "${after_sync}" = "Synced" ] && [ "${after_health}" = "Healthy" ]; then
+  _pass "after the refresh ${app_name} is still Synced and Healthy"
+else
+  _fail "after the refresh ${app_name} is sync=${after_sync:-?} health=${after_health:-?}, not Synced/Healthy"
+fi
+if [ "${after_started}" = "${started_before}" ] && [ -z "${after_pending}" ] && [ -z "${after_err}" ]; then
+  _pass "no second operation: the operation's startedAt is unchanged, nothing is pending, no error condition"
+else
+  _fail "a second operation or an error followed the refresh: startedAt ${started_before:--} -> ${after_started:--}, pending=${after_pending:-none}, error conditions=${after_err:-none}"
 fi
 
 step "it did not sweep the rest of bootstrap/ onto the cluster"

@@ -21,15 +21,28 @@ orig_cm=""
 orig_secret=""
 secret_key_absent=""
 orig_mem=""
+mem_touched=""
+
+# set_repo_server_memory [value]: sets argocd-repo-server's memory limit by strategic merge patch. The stock install
+# carries no resources block on the container at all, so a JSON "replace" on .../limits/memory has nothing to replace
+# and fails with "The request is invalid". The strategic merge creates the limit when it is absent. With no value,
+# null deletes the memory key again (deleting a key that is already absent is a no-op), so an install that had no
+# limit ends with none.
+set_repo_server_memory() {
+  local mem=null
+  [ -n "${1:-}" ] && mem="\"$1\""
+  kubectl -n argocd patch deploy argocd-repo-server --type=strategic \
+    -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"argocd-repo-server\",\"resources\":{\"limits\":{\"memory\":${mem}}}}]}}}}" >/dev/null
+}
 
 cleanup() {
   [ -n "${orig_cm}" ] && kubectl -n argocd patch cm argocd-cm --type merge -p "${orig_cm}" >/dev/null 2>&1 || \
     kubectl -n argocd patch cm argocd-cm --type json -p '[{"op":"remove","path":"/data/resource.customizations"}]' >/dev/null 2>&1 || true
   [ -n "${orig_secret}" ] && kubectl -n argocd patch secret argocd-secret -p "${orig_secret}" >/dev/null 2>&1 || true
   [ -n "${secret_key_absent}" ] && kubectl -n argocd patch secret argocd-secret --type json -p '[{"op":"remove","path":"/data/webhook.github.secret"}]' >/dev/null 2>&1 || true
-  if [ -n "${orig_mem}" ]; then
-    kubectl -n argocd patch deploy argocd-repo-server --type=json \
-      -p="[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"${orig_mem}\"}]" >/dev/null 2>&1 || true
+  if [ -n "${mem_touched}" ]; then
+    set_repo_server_memory "${orig_mem}" >/dev/null 2>&1 || true
+    mem_touched=""
   fi
   kubectl -n argocd rollout restart statefulset argocd-application-controller; kubectl -n argocd rollout restart deploy argocd-server argocd-repo-server >/dev/null 2>&1 || true
   kubectl delete application "${APP}" -n argocd --wait=false >/dev/null 2>&1 || true
@@ -133,10 +146,10 @@ else
 fi
 
 step "a repo-server memory limit set below what real rendering load needs produces a provable OOMKilled, not a generic crash"
+# orig_mem stays empty when the install has no limit (stock): the restore then removes the key rather than writing one back.
 orig_mem="$(kubectl -n argocd get deploy argocd-repo-server -o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}' 2>/dev/null || true)"
-[ -n "${orig_mem}" ] || orig_mem="512Mi"
-kubectl -n argocd patch deploy argocd-repo-server --type=json \
-  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/resources/limits/memory","value":"48Mi"}]' >/dev/null
+mem_touched=yes
+set_repo_server_memory 48Mi
 
 for i in $(seq -w 1 15); do
   kubectl apply -f - >/dev/null <<EOF
@@ -171,10 +184,10 @@ else
 fi
 
 step "restoring the memory limit lets the repo-server run cleanly again"
-kubectl -n argocd patch deploy argocd-repo-server --type=json \
-  -p="[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/limits/memory\",\"value\":\"${orig_mem}\"}]" >/dev/null
+set_repo_server_memory "${orig_mem}"
 kubectl -n argocd rollout status deploy argocd-repo-server --timeout=120s >/dev/null
+mem_touched=""
 orig_mem=""
-_pass "argocd-repo-server rolled out cleanly at its restored memory limit"
+_pass "argocd-repo-server rolled out cleanly with its original memory limit restored"
 
 smoke_done

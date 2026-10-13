@@ -21,30 +21,27 @@ REPO="https://github.com/abohmeed/argocd-class-resources.git"
 
 # ---------------------------------------------------------------------------------------------
 # DIAGNOSTICS ONLY. No assertion, verdict or pass/fail outcome changes, and a passing run takes the same time.
-# A failing run takes longer: a watch (ending by 430 s from script start) and the digest run after the verdict is set.
+# A failing run takes longer: the digest runs after the verdict is set. The revert wait is at most 330 s.
 #
-# Competing hypotheses for the failing revert check (the label survives the 120 s window). The controller
-# counts are scoped to the flap (from LOG_SINCE, set just before the flap), not the last 20 minutes.
+# Competing hypotheses for the failing revert check (the memory limit is still the flapped 64Mi after the
+# self-heal wait). The controller counts are scoped to the flap (from LOG_SINCE, set just before the flap),
+# not the last 20 minutes.
 #   H-backoff  selfHeal retries, but Argo CD spaces the attempts out (selfHealRemainingBackoff:
-#              2, 6, 18, 54, 162, then 300 s). Seen as "already attempted sync ... (retrying in X)"
-#              log lines and autoHealAttemptsCount of 3 or more. CONFIRMED when backoff-retrying is 1 or
-#              more, the count is 3 or more, and either the label is removed later in the watch or
-#              la=yes. WEAKENED when the label is still present at the end of the watch with a backoff
-#              count of 0 or 1.
+#              2, 6, 18, 54, 162, then 300 s; the cap is --self-heal-backoff-cap-seconds, default 300).
+#              Seen as "already attempted sync ... (retrying in X)" log lines and autoHealAttemptsCount of
+#              3 or more. CONFIRMED when backoff-retrying is 1 or more, the count is 3 or more, and the
+#              limit is back at the Git value later in the wait. WEAKENED when the limit is still 64Mi at the
+#              end of the wait with a backoff count of 0 or 1.
 #   H-failed   the last auto-sync did not succeed, so Argo CD never retries ("failed previous
 #              sync attempt ... will not retry"). CONFIRMED by phase Failed or Error, or a non-zero
 #              failed-no-retry count. RULED OUT by phase Succeeded and a zero failed-no-retry count.
-#   H-blind    Argo CD does not treat the label as drift, so selfHeal never runs. CONFIRMED by the
+#   H-blind    Argo CD does not treat the limit as drift, so selfHeal never runs. CONFIRMED by the
 #              "application status is Synced" lines with zero initiated-auto-sync lines, and argocd app
-#              diff exit 0 with zero injected-by lines. RULED OUT if the diff names injected-by or any
+#              diff exit 0 with zero memory lines. RULED OUT if the diff names memory or any
 #              initiated-auto-sync line appears.
 #   H-stuck    an operation never clears ("another operation is in progress", phase Running), or
 #              the refresh request was never consumed (refresh annotation still set). CONFIRMED by
 #              operation-already-running above 0, or the refresh annotation still set. RULED OUT when both are zero.
-#   H-apply    an auto-sync runs, but the apply cannot remove the label because it was never in
-#              last-applied-configuration (la=no), so a three-way apply does not delete a field it never
-#              owned. CONFIRMED by initiated-auto-sync of 1 or more, the label still present, and la=no.
-#              Reasoned from the gitops-engine apply path, not run against a cluster.
 #   H-flap     the 45 s flap did not land as intended. CONFIRMED by patches failed above 0 (first-error printed).
 #
 # run_all.sh prints only the last 20 lines of a failing script, so the digest below is kept to
@@ -67,10 +64,12 @@ app_brief() {
   kubectl get application "${APP}" -n argocd -o go-template='{{.status.sync.status}}/{{.status.health.status}}/{{with .status.operationState}}{{.phase}}{{end}}' 2>/dev/null || echo "?"
 }
 
+# FLAP_MEM is the value the flap writes; BASE_MEM is the Git value read just before the flap (step 1).
+FLAP_MEM="64Mi"
+BASE_MEM=""
 FLAP_TALLY=""
 FLAP_ERR=""
 ANNOT_RC=0
-EXT_RESULT="not run"
 DIGEST=""
 SERIES=""
 LAST_STATE=""
@@ -78,13 +77,16 @@ POLL_T0="${SCRIPT_START}"
 LOG_SINCE=""
 PRESENCE=""
 
-# sample_state <label value>: adds a point to the series only when the state changes, to keep it short.
+# mem_live: the Rollout's container memory limit, the field the flap writes and selfHeal reverts. Empty on error.
+mem_live() {
+  kubectl -n "${NS}" get rollout storefront -o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}' 2>/dev/null || true
+}
+
+# sample_state <memory limit>: adds a point to the series only when the state changes, to keep it short.
 sample_state() {
-  local present="$1" t p state
+  local limit="$1" t state
   t=$(( $(date +%s) - POLL_T0 ))
-  p=n
-  if [ -n "${present}" ]; then p=y; fi
-  state="present=${p} $(app_brief)"
+  state="limit=${limit:-none} $(app_brief)"
   if [ "${state}" != "${LAST_STATE}" ]; then
     SERIES="${SERIES}${SERIES:+ ; }+${t}s ${state}"
     LAST_STATE="${state}"
@@ -97,8 +99,8 @@ diag() {
   DIGEST="${DIGEST}$*"$'\n'
 }
 
-# dump_digest <where> <mode>: the state that tells the hypotheses apart. mode is "revert" after the 120 s
-# check (the flap and the watch ran) or "step2" (they did not, so their lines say so instead of repeating step 1).
+# dump_digest <where> <mode>: the state that tells the hypotheses apart. mode is "revert" after the self-heal
+# wait (the flap ran) or "step2" (it did not, so its lines say so instead of repeating step 1).
 dump_digest() {
   local where="$1" mode="$2" sync health rec ann phase op_auto op_sa op_start op_fin op_rev op_msg
   local live lastapplied la managers res rt rj diff_file diff_out diff_rc diff_hits diff_first annot_txt
@@ -123,14 +125,14 @@ dump_digest() {
   op_msg="$(kget '{.status.operationState.message}' | cut -c1-120)"
   diag "operationState: phase=${phase:-none} initiatedBy.automated=${op_auto:-none} autoHealAttemptsCount=${op_sa:-none} startedAt=${op_start:-?} finishedAt=${op_fin:-?} rev=${op_rev:-?} message=\"${op_msg}\""
 
-  live="$(kubectl -n "${NS}" get rollout storefront -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
+  live="$(mem_live)"
   # Captured first, then matched: a grep -q that exits early could SIGPIPE kubectl and flip this under pipefail.
   lastapplied="$(kubectl -n "${NS}" get rollout storefront -o jsonpath='{.metadata.annotations.kubectl\.kubernetes\.io/last-applied-configuration}' 2>/dev/null || true)"
   la=no
-  case "${lastapplied}" in *injected-by*) la=yes ;; esac
+  case "${lastapplied}" in *'"memory"'*) la=yes ;; esac
   managers="$(kubectl -n "${NS}" get rollout storefront -o jsonpath='{.metadata.managedFields[*].manager}' 2>/dev/null || true)"
   res="$(kget '{range .status.resources[*]}{.kind}/{.name}={.status}{"\n"}{end}' | grep '^Rollout/' || true)"
-  diag "rollout storefront: injected-by live=${live:-absent} in-last-applied=${la} managers=${managers:-?} app-status.resources=${res:-none-listed}"
+  diag "rollout storefront: memory limit live=${live:-absent} (flapped ${FLAP_MEM}, Git ${BASE_MEM:-unread}) in-last-applied=${la} managers=${managers:-?} app-status.resources=${res:-none-listed}"
 
   rt="$(kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.timeout\.reconciliation}' 2>/dev/null || true)"
   rj="$(kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.timeout\.reconciliation\.jitter}' 2>/dev/null || true)"
@@ -141,9 +143,9 @@ dump_digest() {
   ${BOUND_CMD:+${BOUND_CMD} 20} argocd app diff "${APP}" >"${diff_file}" 2>&1 || diff_rc=$?
   diff_out="$(cat "${diff_file}")"
   rm -f "${diff_file}"
-  diff_hits="$(printf '%s\n' "${diff_out}" | grep -c 'injected-by' || true)"
-  diff_first="$(printf '%s\n' "${diff_out}" | grep -m1 'injected-by' | cut -c1-120 || true)"
-  diag "argocd app diff (20s cap): exit=${diff_rc} lines-naming-injected-by=${diff_hits:-0} first=\"${diff_first}\""
+  diff_hits="$(printf '%s\n' "${diff_out}" | grep -c 'memory' || true)"
+  diff_first="$(printf '%s\n' "${diff_out}" | grep -m1 'memory' | cut -c1-120 || true)"
+  diag "argocd app diff (20s cap): exit=${diff_rc} lines-naming-memory=${diff_hits:-0} first=\"${diff_first}\""
 
   # Scoped to this step: LOG_SINCE is set just before the flap (step 1) or just before the step 2 patch.
   since_arg="--since=20m"
@@ -167,11 +169,11 @@ dump_digest() {
     err_n="$(grep -c '^err$' "${FLAP_TALLY:-/dev/null}" 2>/dev/null || true)"
     first_err="$(head -1 "${FLAP_ERR:-/dev/null}" 2>/dev/null | cut -c1-160 || true)"
     diag "flap (45s, one patch every 4s): patches ok=${ok_n:-0} failed=${err_n:-0} first-error=\"${first_err}\""
-    diag "label presence per sample, 120 s check then watch (y = on the Rollout): ${PRESENCE:0:80}"
-    diag "series after the 120 s check (present=y: label on the Rollout): ${SERIES:0:300}"
-    diag "past the 120s window: ${EXT_RESULT}"
+    diag "limit per sample over the self-heal wait (y = still ${FLAP_MEM}, the flapped value): ${PRESENCE:0:80}"
+    diag "series over the self-heal wait: ${SERIES:0:300}"
+    diag "memory limit at the end of the wait: ${still_mem:-none} (Git value ${BASE_MEM:-unread})"
   else
-    diag "flap, 120 s check and watch: not part of this step (see the step 1 digest)"
+    diag "flap and self-heal wait: not part of this step (see the step 1 digest)"
   fi
 
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
@@ -242,7 +244,15 @@ spec:
 EOF
 wait_for_sync "${APP}" 180
 
-step "a repeatedly re-applied label IS reverted by selfHeal alone: the flap this lesson opens on"
+step "a repeatedly re-applied memory limit IS reverted by selfHeal alone: the flap this lesson opens on"
+# The lesson's stand-in webhook rewrites this field, so the field is in Git (32Mi in base). Read it before the flap:
+# the Application is Synced here, so the live value is the Git value. The flap writes a different value.
+BASE_MEM="$(mem_live)"
+if [ -n "${BASE_MEM}" ] && [ "${BASE_MEM}" != "${FLAP_MEM}" ]; then
+  _pass "the Rollout's memory limit is ${BASE_MEM} before the flap (Synced, so the Git value); the flap sets ${FLAP_MEM}"
+else
+  _fail "expected a memory limit on the Rollout other than ${FLAP_MEM} before the flap, got '${BASE_MEM:-none}'"
+fi
 FLAP_TALLY="$(mktemp)"
 FLAP_ERR="$(mktemp)"
 LOG_SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -250,7 +260,7 @@ LOG_SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   while true; do
     # Same effect as before: a failed patch still ends this loop (errexit is inherited). The tally only records it.
     kubectl -n "${NS}" patch rollout storefront --type=json \
-      -p='[{"op":"add","path":"/spec/template/metadata/labels/injected-by","value":"webhook-sim"}]' \
+      -p='[{"op":"replace","path":"/spec/template/spec/containers/0/resources/limits/memory","value":"64Mi"}]' \
       >/dev/null 2>>"${FLAP_ERR}" && echo ok >>"${FLAP_TALLY}" || { echo err >>"${FLAP_TALLY}"; exit 1; }
     sleep 4
   done
@@ -259,45 +269,38 @@ FLAP_PID=$!
 sleep 45
 kill "${FLAP_PID}" >/dev/null 2>&1 || true
 FLAP_PID=""
+# A pass below must not come from a flap that never wrote. Each successful patch wrote FLAP_MEM, and the flap only
+# writes FLAP_MEM, so once one write landed, any later value other than FLAP_MEM can only have come from selfHeal.
+flap_writes="$(grep -c '^ok$' "${FLAP_TALLY}" 2>/dev/null || true)"
+if [ "${flap_writes:-0}" -lt 1 ]; then
+  first_flap_err="$(head -1 "${FLAP_ERR}" 2>/dev/null | cut -c1-160 || true)"
+  _fail "the flap wrote ${FLAP_MEM} zero times (first error: ${first_flap_err:-none}): there is nothing for selfHeal to revert"
+fi
 POLL_T0="$(date +%s)"
 # selfHeal reverts on the controller's next reconcile of the Application. Ask for one, then poll for the revert
 # rather than trusting a fixed wait, since the Rollout's own rollout after each flap takes a while to settle.
+# The refresh does not skip self-heal backoff. After a flap, Argo CD 3.5.3 waits up to the self-heal backoff cap
+# (--self-heal-backoff-cap-seconds, default 300) between attempts, so the revert can take ~5 minutes.
+# The poll ceiling covers the cap: 66 x 5 s = 330 s.
 if kubectl -n argocd annotate application "${APP}" argocd.argoproj.io/refresh=normal --overwrite >/dev/null 2>&1; then
   ANNOT_RC=0
 else
   ANNOT_RC=$?
 fi
-still_present="x"
-for _ in $(seq 1 24); do
-  still_present="$(kubectl get rollout storefront -n "${NS}" -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
-  # Records presence only: no extra calls in this loop, so the 120 s verdict window keeps its length.
-  if [ -n "${still_present}" ]; then PRESENCE="${PRESENCE}y"; else PRESENCE="${PRESENCE}n"; fi
-  [ -z "${still_present}" ] && break
+still_mem="x"
+for _ in $(seq 1 66); do
+  still_mem="$(mem_live)"
+  sample_state "${still_mem}"
+  if [ "${still_mem}" = "${FLAP_MEM}" ]; then PRESENCE="${PRESENCE}y"; else PRESENCE="${PRESENCE}n"; fi
+  # Leave the loop as soon as the value is no longer the flapped one: selfHeal has written something else.
+  if [ "${still_mem}" != "${FLAP_MEM}" ]; then break; fi
   sleep 5
 done
-if [ -z "${still_present}" ]; then
-  _pass "with plain selfHeal and no ignoreDifferences, the flapped label was reverted away: reproduces the lesson's opener"
+if [ "${still_mem}" = "${BASE_MEM}" ]; then
+  _pass "with plain selfHeal and no ignoreDifferences, the flapped memory limit was reverted to the Git value: reproduces the lesson's opener"
 else
-  # Diagnostics only: keep watching until the budget (430 s from script start by default), so the digest and cleanup
-  # still finish under run_all.sh's 600 s ceiling. This runs only on the failure path, after the verdict is set.
-  # The verdict stays the 120 s verdict above; this only records whether a revert arrives later.
-  sample_state "${still_present}"
-  EXT_END=$(( SCRIPT_START + ${S12L10_DIAG_BUDGET:-430} ))
-  EXT_RESULT="budget spent before the watch began; label still present"
-  now_present=""
-  while [ "$(date +%s)" -lt "${EXT_END}" ]; do
-    sleep 10
-    now_present="$(kubectl get rollout storefront -n "${NS}" -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
-    sample_state "${now_present}"
-    if [ -n "${now_present}" ]; then PRESENCE="${PRESENCE}y"; else PRESENCE="${PRESENCE}n"; fi
-    if [ -z "${now_present}" ]; then
-      EXT_RESULT="label removed at +$(( $(date +%s) - POLL_T0 ))s, i.e. after the 120s window closed"
-      break
-    fi
-    EXT_RESULT="label still present at +$(( $(date +%s) - POLL_T0 ))s (watch budget ends at +$(( EXT_END - POLL_T0 ))s)"
-  done
-  dump_digest "the revert check (120 s window)" revert
-  _fail "the flapped label is still present after selfHeal had time to revert it: the opener does not reproduce"
+  dump_digest "the revert check (self-heal wait)" revert
+  _fail "the memory limit is still ${still_mem:-none} after selfHeal had time to revert it (Git value ${BASE_MEM}): the opener does not reproduce"
 fi
 
 step "ignoreDifferences + RespectIgnoreDifferences stops selfHeal from stripping the field back out"
@@ -307,7 +310,7 @@ spec:
   - group: argoproj.io
     kind: Rollout
     jsonPointers:
-    - /spec/template/metadata/labels/injected-by
+    - /spec/template/spec/containers/0/resources/limits/memory
   syncPolicy:
     automated:
       selfHeal: true
@@ -317,16 +320,17 @@ spec:
 
 LOG_SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 kubectl -n "${NS}" patch rollout storefront --type=json \
-  -p='[{"op":"add","path":"/spec/template/metadata/labels/injected-by","value":"webhook-sim"}]' >/dev/null
-argocd app sync "${APP}" >/dev/null 2>&1 || kubectl -n argocd annotate application "${APP}" argocd.argoproj.io/refresh=hard --overwrite >/dev/null
+  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/resources/limits/memory","value":"64Mi"}]' >/dev/null
+# The check below judges what a SYNC does to the ignored field, so the sync must really run.
+sync_out="$(argocd app sync "${APP}" 2>&1)" || _fail "argocd app sync failed, so step 2 cannot judge the fix: $(printf '%s' "${sync_out}" | tail -3 | tr '\n' ' ' | cut -c1-300)"
 sleep 30
 
-survived="$(kubectl get rollout storefront -n "${NS}" -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
-if [ "${survived}" = "webhook-sim" ]; then
+survived="$(mem_live)"
+if [ "${survived}" = "${FLAP_MEM}" ]; then
   _pass "with ignoreDifferences AND RespectIgnoreDifferences, a sync no longer strips the field back out"
 else
   dump_digest "step 2, after ignoreDifferences plus RespectIgnoreDifferences" step2
-  _fail "the field was still removed even with ignoreDifferences + RespectIgnoreDifferences set: the fix this lesson teaches does not hold on this cluster"
+  _fail "the memory limit was still reverted to ${survived:-none} even with ignoreDifferences + RespectIgnoreDifferences set: the fix this lesson teaches does not hold on this cluster"
 fi
 
 smoke_done
