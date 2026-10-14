@@ -26,7 +26,7 @@ spec:
       containers:
         - name: migrate
           image: postgres:18.6
-          command: ["psql", "-h", "checkout-postgres", "-U", "checkout", "-d", "checkout", "-f", "/sql/001_orders.sql"]
+          command: ["psql", "-h", "checkout-postgres", "-U", "checkout", "-d", "checkout", "-f", "/sql/0001_orders.sql"]
           env:
             - name: PGPASSWORD
               valueFrom:
