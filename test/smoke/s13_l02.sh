@@ -155,7 +155,18 @@ if [ "${diff_rc}" -le 1 ] && printf '%s\n' "${diff_out}" | grep -q 's13l02-cmp-o
 else
   _fail "expected a clean diff naming s13l02-cmp-output after the fix, got exit ${diff_rc}: ${diff_out}"
 fi
-sync_out="$(argocd app sync "${APP}" 2>&1)" && sync_rc=0 || sync_rc=$?
+# --core mode reaches the repo server through a port-forward the CLI opens per command; right after the repo-server
+# restart that can still hit the old pod ("connection refused", code = Unavailable), and the app may still hold the
+# bug step's cached ComparisonError. Retry those transient refusals a few times after a hard refresh.
+sync_out=""; sync_rc=1
+for attempt in 1 2 3 4; do
+  sync_out="$(argocd app sync "${APP}" 2>&1)" && sync_rc=0 || sync_rc=$?
+  [ "${sync_rc}" -eq 0 ] && break
+  printf '%s\n' "${sync_out}" | grep -qiE 'connection refused|code = Unavailable|Manifest generation error \(cached\)' || break
+  printf '  diag  sync attempt %s hit a transient repo-server error; hard refresh and retry\n' "${attempt}"
+  argocd app get "${APP}" --hard-refresh >/dev/null 2>&1 || true
+  sleep 10
+done
 if [ "${sync_rc}" -ne 0 ] && printf '%s\n' "${sync_out}" | grep -qi 'another operation is already in progress'; then
   # the failed sync from the bug step can still be retrying: stop it, as Do.md's troubleshooting does, and sync once more
   argocd app terminate-op "${APP}" >/dev/null 2>&1 || true
