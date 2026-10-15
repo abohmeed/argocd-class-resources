@@ -18,12 +18,6 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: storefront-dev
-  # S12-L10: the memory limit a stand-in controller rewrites is not ours to fight over
-  ignoreDifferences:
-    - group: argoproj.io
-      kind: Rollout
-      jsonPointers:
-        - /spec/template/spec/containers/0/resources/limits/memory
   syncPolicy:
     automated:
       # automated ALONE does not revert a manual kubectl edit. selfHeal does.
@@ -32,4 +26,3 @@ spec:
       prune: true
     syncOptions:
       - CreateNamespace=true
-      - RespectIgnoreDifferences=true
