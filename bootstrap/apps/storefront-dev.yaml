@@ -11,10 +11,14 @@ spec:
   # Children are scoped to a project deliberately. An unscoped child inherits `default`,
   # which is unrestricted. That is the accident this line prevents.
   project: default
-  source:
-    repoURL: https://github.com/abohmeed/argocd-class-resources.git
-    targetRevision: main
-    path: apps/storefront/overlays/dev
+  sourceHydrator:
+    drySource:
+      repoURL: https://github.com/abohmeed/argocd-class-resources.git
+      targetRevision: main
+      path: apps/storefront/overlays/dev
+    syncSource:
+      targetBranch: environments/storefront-dev
+      path: storefront-dev
   destination:
     server: https://kubernetes.default.svc
     namespace: storefront-dev
