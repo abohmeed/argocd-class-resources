@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: loyalty
+  namespace: argocd
+spec:
+  description: "loyalty team: one repository, loyalty's own namespaces, no cluster-scoped resources."
+  sourceRepos:
+    - https://github.com/abohmeed/argocd-class-resources.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: loyalty-*
+  # Cluster-scoped resources are DENY BY DEFAULT. Whitelist only what the team genuinely needs,
+  # one kind at a time, with a reason in the pull request.
+  clusterResourceWhitelist: []
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange
