@@ -18,13 +18,6 @@ patches:
     patch: |-
       - op: remove
         path: /spec/template/spec/containers/0/args
-  - target:
-      kind: Rollout
-      name: storefront
-    patch: |-
-      - op: replace
-        path: /spec/replicas
-        value: -1
 configMapGenerator:
   - name: storefront-banner
     behavior: merge
