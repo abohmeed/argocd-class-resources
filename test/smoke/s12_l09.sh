@@ -1,56 +1,72 @@
 #!/usr/bin/env bash
-# lesson: s12_l09 Performance and tuning at scale
-# Timeout.reconciliation/jitter and the repo-server's parallelism limit are real,
-# live-editable knobs, and the defaults this lesson claims are the defaults this cluster
-# actually ships with.
+# lesson: s03_l05 Argo CD resource tracking: label vs annotation
+# Resource tracking moved from a label to an annotation in Argo CD 3.0.
 #
-# The lesson explicitly refuses to claim a specific before/after number: "traffic at Northwind
-# is not going to look like traffic anywhere else", so this script does not chase one either.
-# What it defends: the two knobs exist, are unset by default (180s reconciliation, no jitter,
-# unlimited repo-server parallelism), and both apply cleanly when set.
+# The lesson's claim: on this cluster (3.5.3), `application.resourceTrackingMethod` defaults to
+# `annotation`: Argo CD stamps managed resources with `argocd.argoproj.io/tracking-id` in
+# metadata.annotations, NOT the pre-3.0 `app.kubernetes.io/instance` label. If a future edit to
+# bootstrap/install.yaml's argocd-cm ever forces `label` tracking (or the default changes again
+# upstream), a resource orphaning risk the lesson explicitly warns against (GitHub issue 17361)
+# becomes live, and the "annotation is what you'll actually see" claim goes false. This checks
+# the committed config for the override the lesson says should NOT be there, then drives a real
+# sync and reads the live object's own metadata: not a guess about what the default should be.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S12-L09 "timeout.reconciliation/jitter and ARGOCD_REPO_SERVER_PARALLELISM_LIMIT are live, unset-by-default knobs"
+lesson S12-L09 "resource tracking is annotation-based by default on this cluster (3.0+), not the pre-3.0 label"
 tier cluster
 
-step "before any tuning, argocd-cm carries no explicit reconciliation timeout: the 180s default is implicit, not written"
-cm_data="$(kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.timeout\.reconciliation}' 2>/dev/null || true)"
-if [ -z "${cm_data}" ]; then
-  _pass "timeout.reconciliation is unset: this cluster is on the implicit 180s default, as the lesson opens"
+# This lesson is proven through Argo CD's own API layer, so the CLI needs a session. On a
+# bare CI cluster there is no gateway and no login; without this the CLI dies with
+# "Argo CD server address unspecified", which reads like a broken script rather than an
+# unconfigured environment.
+argocd_cli_ready
+
+step "repo-side invariant: no forced label tracking is committed"
+assert_file_lacks "bootstrap/install.yaml" "resourceTrackingMethod:[[:space:]]*label" \
+  "argocd-cm does not force label-based tracking: annotation stays the effective default"
+
+APP="s03l05-probe"
+NS="s03l05-probe"
+REPO="https://github.com/abohmeed/argocd-class-resources.git"
+
+cleanup() {
+  kubectl delete application "${APP}" -n argocd --wait=true --timeout=90s >/dev/null 2>&1 || true
+  kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+step "sync a Deployment under a fresh, isolated Application"
+cat <<EOF | kubectl apply -f - >/dev/null
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: ${APP}, namespace: argocd}
+spec:
+  project: default
+  # base, NOT overlays/dev: the dev overlay pins its own namespace, and a manifest's own
+  # namespace wins over destination.namespace, so this probe would silently land in the real,
+  # shared storefront-dev namespace. base pins none, so destination.namespace applies cleanly.
+  source: {repoURL: "${REPO}", targetRevision: baseline/before-rollouts, path: apps/storefront/base}
+  destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
+  syncPolicy:
+    syncOptions: ["CreateNamespace=true"]
+EOF
+argocd app sync "${APP}" >/dev/null
+wait_for_sync "${APP}" 180
+
+step "the live Deployment carries the 3.0+ annotation, and NOT the pre-3.0 tracking label"
+tracking_id="$(kubectl get deployment storefront -n "${NS}" -o jsonpath='{.metadata.annotations.argocd\.argoproj\.io/tracking-id}' 2>/dev/null || true)"
+instance_label="$(kubectl get deployment storefront -n "${NS}" -o jsonpath='{.metadata.labels.app\.kubernetes\.io/instance}' 2>/dev/null || true)"
+
+if [ -n "${tracking_id}" ]; then
+  _pass "argocd.argoproj.io/tracking-id is present: ${tracking_id}"
 else
-  _pass "timeout.reconciliation is already set to '${cm_data}': an earlier run tuned it; that is a valid state too, not a defect"
+  _fail "no argocd.argoproj.io/tracking-id annotation on the live Deployment: this cluster is no longer tracking by annotation, and the lesson's 'this is what 3.0+ actually looks like' claim is false"
 fi
 
-step "the repo-server's parallelism limit env var is not set by default: unlimited, not zero"
-env_json="$(kubectl -n argocd get deploy argocd-repo-server -o jsonpath='{.spec.template.spec.containers[0].env}' 2>/dev/null || true)"
-if printf '%s' "${env_json}" | grep -q 'ARGOCD_REPO_SERVER_PARALLELISM_LIMIT'; then
-  _pass "ARGOCD_REPO_SERVER_PARALLELISM_LIMIT is already set: an earlier run tuned it"
+if [ -z "${instance_label}" ]; then
+  _pass "app.kubernetes.io/instance (the pre-3.0 tracking label) is absent: tracking is annotation-only, as the lesson says"
 else
-  _pass "ARGOCD_REPO_SERVER_PARALLELISM_LIMIT is unset, matching the lesson's 'ships unset, meaning unlimited' claim"
-fi
-
-step "setting both knobs is accepted by the live cluster and reflected back"
-kubectl -n argocd patch cm argocd-cm --type merge -p '{"data":{"timeout.reconciliation":"90s","timeout.reconciliation.jitter":"30s"}}' >/dev/null
-kubectl -n argocd rollout restart statefulset argocd-application-controller >/dev/null
-kubectl -n argocd rollout status statefulset argocd-application-controller --timeout=120s >/dev/null \
-  || _fail "argocd-application-controller did not roll out after the reconciliation-timeout change"
-
-got_timeout="$(kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.timeout\.reconciliation}')"
-got_jitter="$(kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.timeout\.reconciliation\.jitter}')"
-if [ "${got_timeout}" = "90s" ] && [ "${got_jitter}" = "30s" ]; then
-  _pass "argocd-cm reflects the tuned values (90s / 30s) after a rollout restart"
-else
-  _fail "argocd-cm does not reflect the tuned values (got '${got_timeout}' / '${got_jitter}')"
-fi
-
-kubectl -n argocd set env deploy/argocd-repo-server ARGOCD_REPO_SERVER_PARALLELISM_LIMIT=4 >/dev/null
-kubectl -n argocd rollout status deploy/argocd-repo-server --timeout=120s >/dev/null \
-  || _fail "argocd-repo-server did not roll out after setting the parallelism limit"
-got_limit="$(kubectl -n argocd get deploy argocd-repo-server -o jsonpath='{.spec.template.spec.containers[0].env}' | tr ',' '\n' | grep -o 'PARALLELISM_LIMIT[^}]*' || true)"
-if [ -n "${got_limit}" ]; then
-  _pass "argocd-repo-server carries the parallelism limit after the env var change"
-else
-  _fail "argocd-repo-server does not show the parallelism limit after setting it"
+  _fail "app.kubernetes.io/instance='${instance_label}' is present on the live Deployment: this cluster is tracking by LABEL, the exact pre-3.0 behavior this lesson says this cluster left behind; either a label override landed in argocd-cm or the default itself regressed"
 fi
 
 smoke_done

@@ -18,7 +18,7 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: storefront-dev
-  # S12-L10: the memory limit a stand-in controller rewrites is not ours to fight over
+  # S12-L12: the memory limit a stand-in controller rewrites is not ours to fight over
   ignoreDifferences:
     - group: argoproj.io
       kind: Rollout
