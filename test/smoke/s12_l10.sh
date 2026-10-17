@@ -1,11 +1,26 @@
 #!/usr/bin/env bash
-# lesson: s12_l10 Troubleshooting Argo CD: stuck syncs and OutOfSync loops
-# A stuck PreSync hook is diagnosable by name (a missing image-pull secret), not just
-# "stuck"; and ignoreDifferences alone does not stop selfHeal reverting a re-applied field away:
-# it needs RespectIgnoreDifferences too, proven against a real, reconciling Application.
+# lesson: s03_l04 Writing a custom health check for a CRD Argo CD doesn't understand
+# Argo CD has no opinion about a Certificate; the Lua health check gives it one.
+#
+# The lesson's claim: a cert-manager Certificate, once created, reads Healthy in Argo CD's
+# DEFAULT health computation regardless of whether cert-manager ever actually issues it: Argo
+# CD has no built-in rule for a kind it doesn't recognize, so it defaults to Healthy the instant
+# the object exists. Only a custom Lua health check
+# (resource.customizations.health.cert-manager.io_Certificate) makes the reported status track
+# the real `status.conditions[type=Ready]` value. This is proven two ways below: a Certificate
+# that can NEVER issue (bad issuerRef, so there is no timing race: it stays Ready:False
+# forever) still reads Healthy under the default rules, and reads Progressing once the Lua check
+# is active; a real one, with the Lua check active, reads Healthy only once it is genuinely
+# Ready.
+#
+# argocd-cm is itself GitOps-managed by the `argocd` self-manage Application with
+# selfHeal:true (from the self-management lesson, s02_l10.sh): a live `kubectl patch` of it alone would be reverted within
+# seconds, so this script disables that Application's own selfHeal for the duration of the
+# patch, exactly the way the lesson insists this must go through Git in real use, and
+# restores it (and argocd-cm) in cleanup regardless of how the script exits.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S12-L10 "a stuck PreSync hook names its own blocker, and ignoreDifferences alone does not stop selfHeal reverting a flapped field"
+lesson S12-L10 "a Certificate reads Healthy by default before issuance; only the Lua health check reports the real Ready condition"
 tier cluster
 
 # This lesson is proven through Argo CD's own API layer, so the CLI needs a session. On a
@@ -14,113 +29,147 @@ tier cluster
 # unconfigured environment.
 argocd_cli_ready
 
-HOOK_NS="s12l10-hook"
-APP="s12l10-probe"
-NS="s12l10-probe"
-REPO="https://github.com/abohmeed/argocd-class-resources.git"
+step "preconditions from the TLS lesson (s02_l08.sh): cert-manager and selfsigned-issuer must already be on the cluster"
+kubectl get deploy -n cert-manager >/dev/null 2>&1 \
+  || _fail "no cert-manager deployment found: it comes from the TLS lesson (s02_l08.sh), not this one; run that lesson's setup before this script"
+kubectl get clusterissuer selfsigned-issuer >/dev/null 2>&1 \
+  || _fail "ClusterIssuer selfsigned-issuer not found: the TLS lesson's setup (s02_l08.sh) is missing; run it first"
+_pass "cert-manager and selfsigned-issuer are present"
+
+step "confirm the argocd Application (self-management) exists, name and shape from the self-management lesson (s02_l10.sh)"
+kubectl get application argocd -n argocd >/dev/null 2>&1 \
+  || _fail "no Application named 'argocd' in the argocd namespace: the self-management from s02_l10.sh is missing; this script cannot safely test the Lua-through-Git claim without it"
+
+APP="s03l04-probe"
+NS="s03l04-probe"
+TMPDIR="$(mktemp -d)"
+LUA_PATCH="${TMPDIR}/argocd-cm-patch.yaml"
 
 cleanup() {
-  [ -n "${FLAP_PID:-}" ] && kill "${FLAP_PID}" >/dev/null 2>&1 || true
-  kubectl delete application "${APP}" -n argocd --wait=true --timeout=60s >/dev/null 2>&1 || true
-  kubectl delete namespace "${HOOK_NS}" --wait=false >/dev/null 2>&1 || true
+  # Restore argocd-cm to its committed (vanilla) shape...
+  kubectl patch configmap argocd-cm -n argocd --type json \
+    -p '[{"op":"remove","path":"/data"}]' >/dev/null 2>&1 || true
+  # ...and put the argocd Application's own selfHeal back on, exactly as bootstrap/self-manage-app.yaml commits it.
+  kubectl patch application argocd -n argocd --type merge \
+    -p '{"spec":{"syncPolicy":{"automated":{"selfHeal":true,"prune":false}}}}' >/dev/null 2>&1 || true
+  kubectl delete application "${APP}" -n argocd --wait=true --timeout=90s >/dev/null 2>&1 || true
   kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
+  rm -rf "${TMPDIR}"
 }
 trap cleanup EXIT
 
-step "a PreSync hook missing its image-pull secret is diagnosable by name, not just stuck"
-kubectl create namespace "${HOOK_NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl apply -n "${HOOK_NS}" -f - >/dev/null <<EOF
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: stuck-hook
-  annotations:
-    argocd.argoproj.io/hook: PreSync
-spec:
-  backoffLimit: 0
-  template:
-    spec:
-      restartPolicy: Never
-      imagePullSecrets:
-        - name: registry-creds-that-do-not-exist
-      containers:
-        - name: migrate
-          image: ghcr.io/northwind/does-not-matter:1.0
-          command: ["true"]
-EOF
-sleep 8
-pod_events="$(kubectl describe pod -n "${HOOK_NS}" -l job-name=stuck-hook 2>/dev/null | grep -A3 Events || true)"
-if printf '%s' "${pod_events}" | grep -qi 'registry-creds-that-do-not-exist'; then
-  _pass "the hook pod's own Events name the missing image-pull secret: diagnosable, not just hung"
-else
-  _fail "expected the hook pod's Events to name 'registry-creds-that-do-not-exist':\n${pod_events}"
-fi
-succ="$(kubectl get job stuck-hook -n "${HOOK_NS}" -o jsonpath='{.status.succeeded}' 2>/dev/null || true)"
-[ "${succ}" = "1" ] && _fail "the hook Job unexpectedly succeeded: it should be unable to complete without the secret" \
-  || _pass "the hook Job has not completed: this is what 'stuck' looks like, distinct from 'failed'"
+kubectl create namespace "${NS}" >/dev/null 2>&1 || true
 
-step "wire up a real Application, automated + selfHeal, watching apps/storefront/base"
-kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+step "create the probe Application: its own namespace, manual sync, nothing pruned"
 cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata: {name: ${APP}, namespace: argocd}
 spec:
   project: default
-  source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/base}
+  # source is a placeholder, never synced without --local below (base, so it carries no
+  # namespace opinion of its own even inert: overlays pin their own namespace).
+  source: {repoURL: "https://github.com/abohmeed/argocd-class-resources.git", targetRevision: main, path: apps/storefront/base}
   destination: {server: "https://kubernetes.default.svc", namespace: ${NS}}
-  syncPolicy:
-    automated: {selfHeal: true}
-    syncOptions: ["CreateNamespace=true"]
+  syncPolicy: {}
 EOF
-wait_for_sync "${APP}" 180
 
-step "a repeatedly re-applied label IS reverted by selfHeal alone: the flap this lesson opens on"
-(
-  while true; do
-    kubectl -n "${NS}" patch deployment storefront --type=json \
-      -p='[{"op":"add","path":"/spec/template/metadata/labels/injected-by","value":"webhook-sim"}]' \
-      >/dev/null 2>&1
-    sleep 4
-  done
-) &
-FLAP_PID=$!
-sleep 45
-kill "${FLAP_PID}" >/dev/null 2>&1 || true
-FLAP_PID=""
-sleep 20
-still_present="$(kubectl get deployment storefront -n "${NS}" -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
-if [ -z "${still_present}" ]; then
-  _pass "with plain selfHeal and no ignoreDifferences, the flapped label was reverted away: reproduces the lesson's opener"
+step "sync a Certificate that can NEVER issue (bad issuerRef): no timing race, it stays Ready:False forever"
+mkdir -p "${TMPDIR}/broken"
+cat > "${TMPDIR}/broken/certificate.yaml" <<EOF
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: s03l04-broken
+spec:
+  secretName: s03l04-broken-tls
+  dnsNames: ["storefront.northwind.local"]
+  issuerRef:
+    name: s03l04-nonexistent-issuer
+    kind: ClusterIssuer
+EOF
+argocd app sync "${APP}" --local "${TMPDIR}/broken" >/dev/null 2>&1 || true
+sleep 15
+
+step "under DEFAULT (uncustomized) health rules, Argo CD reports it Healthy anyway"
+health="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.status.resources[?(@.name=="s03l04-broken")].health.status}' 2>/dev/null || true)"
+if [ "${health}" = "Healthy" ]; then
+  _pass "a Certificate that will NEVER issue still reads Healthy under Argo CD's default rules: the false positive the lesson opens on"
 else
-  _fail "the flapped label is still present after selfHeal had time to revert it: the opener does not reproduce"
+  _fail "expected the default rules to report Healthy for an unrecognized kind, got '${health:-empty}': either Argo CD gained a built-in cert-manager health check or this repo's default health behaviour has changed; the problem the lesson opens on no longer reproduces"
 fi
 
-step "ignoreDifferences + RespectIgnoreDifferences stops selfHeal from stripping the field back out"
-kubectl -n argocd patch application "${APP}" --type merge -p '
-spec:
-  ignoreDifferences:
-  - group: apps
-    kind: Deployment
-    jsonPointers:
-    - /spec/template/metadata/labels/injected-by
-  syncPolicy:
-    automated:
-      selfHeal: true
-    syncOptions:
-    - RespectIgnoreDifferences=true
-' >/dev/null
+step "write the Lua health check through a (temporary, self-cleaning) argocd-cm patch, not a live one-off edit"
+kubectl patch application argocd -n argocd --type merge \
+  -p '{"spec":{"syncPolicy":{"automated":{"selfHeal":false,"prune":false}}}}' >/dev/null
+cat > "${LUA_PATCH}" <<'EOF'
+data:
+  resource.customizations.health.cert-manager.io_Certificate: |
+    hs = {}
+    if obj.status ~= nil and obj.status.conditions ~= nil then
+      for i, condition in ipairs(obj.status.conditions) do
+        if condition.type == "Ready" then
+          if condition.status == "False" then
+            hs.status = "Progressing"
+            hs.message = condition.message
+            return hs
+          end
+          if condition.status == "True" then
+            hs.status = "Healthy"
+            hs.message = condition.message
+            return hs
+          end
+        end
+      end
+    end
+    hs.status = "Progressing"
+    hs.message = "Waiting for certificate status"
+    return hs
+EOF
+kubectl patch configmap argocd-cm -n argocd --type merge --patch-file "${LUA_PATCH}" >/dev/null
 
-kubectl -n "${NS}" patch deployment storefront --type=json \
-  -p='[{"op":"add","path":"/spec/template/metadata/labels/injected-by","value":"webhook-sim"}]' >/dev/null
-argocd app sync "${APP}" >/dev/null 2>&1 || kubectl -n argocd annotate application "${APP}" argocd.argoproj.io/refresh=hard --overwrite >/dev/null
-sleep 30
-
-survived="$(kubectl get deployment storefront -n "${NS}" -o jsonpath='{.spec.template.metadata.labels.injected-by}' 2>/dev/null || true)"
-if [ "${survived}" = "webhook-sim" ]; then
-  _pass "with ignoreDifferences AND RespectIgnoreDifferences, a sync no longer strips the field back out"
+step "same never-issuing Certificate, now reads honest: Progressing, not Healthy"
+argocd app get "${APP}" --hard-refresh >/dev/null 2>&1 || true
+deadline=$(( $(date +%s) + 60 ))
+health=""
+while [ "$(date +%s)" -lt "${deadline}" ]; do
+  health="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.status.resources[?(@.name=="s03l04-broken")].health.status}' 2>/dev/null || true)"
+  [ "${health}" = "Progressing" ] && break
+  sleep 5
+done
+if [ "${health}" = "Progressing" ]; then
+  _pass "with the Lua check active, the same never-issuing Certificate now reads Progressing: health tracks the real Ready condition"
 else
-  _fail "the field was still removed even with ignoreDifferences + RespectIgnoreDifferences set: the fix this lesson teaches does not hold on this cluster"
+  _fail "expected Progressing once the Lua health check was active, got '${health:-empty}': the Lua customization did not take effect, or its condition-reading logic is broken"
+fi
+
+step "a Certificate that CAN issue reads Healthy only once it genuinely is"
+mkdir -p "${TMPDIR}/good"
+cat > "${TMPDIR}/good/certificate.yaml" <<EOF
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: s03l04-good
+spec:
+  secretName: s03l04-good-tls
+  dnsNames: ["storefront.northwind.local"]
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+EOF
+argocd app sync "${APP}" --local "${TMPDIR}/good" >/dev/null 2>&1 || true
+deadline=$(( $(date +%s) + 90 ))
+good_health=""
+while [ "$(date +%s)" -lt "${deadline}" ]; do
+  argocd app get "${APP}" --refresh >/dev/null 2>&1 || true
+  good_health="$(kubectl get application "${APP}" -n argocd -o jsonpath='{.status.resources[?(@.name=="s03l04-good")].health.status}' 2>/dev/null || true)"
+  [ "${good_health}" = "Healthy" ] && break
+  sleep 5
+done
+if [ "${good_health}" = "Healthy" ]; then
+  _pass "the real Certificate reached Ready and the Lua check reported Healthy: the honest positive case, not just an always-Progressing stub"
+else
+  _fail "the real Certificate never read Healthy under the Lua check (got '${good_health:-empty}'): either issuance failed or the check's True-condition branch is broken"
 fi
 
 smoke_done
