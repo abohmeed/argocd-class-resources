@@ -5,7 +5,7 @@
 # use. Three are missing and three lessons need them:
 #   argocd                 every S02 to S14 script that calls `argocd` (the CLI runs with --core)
 #   kubectl-argo-rollouts  S10-L03 and S14-L05 (the Rollouts plugin, not the controller)
-#   kubeseal               S05-L07 and S14-L04 (Sealed Secrets, sealing against the live controller)
+#   kubeseal               S05-L09 and S14-L04 (Sealed Secrets, sealing against the live controller)
 # Each download is checked against the sha256 its release publishes. A mismatch is a failure, and a
 # tool already at the pinned version is left alone, so the script can run on every job.
 set -euo pipefail

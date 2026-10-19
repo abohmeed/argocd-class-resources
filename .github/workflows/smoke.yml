@@ -91,7 +91,7 @@ jobs:
           mkdir -p ~/.kube && sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config && sudo chown "$(id -u):$(id -g)" ~/.kube/config  # a user-owned COPY, as the cluster setup lesson teaches; never chmod the original
           echo "KUBECONFIG=$HOME/.kube/config" >> "$GITHUB_ENV"
 
-      # S04-L05 teaches Helm 4 and its Do.md expects v4.3.x; GitHub-hosted runners ship Helm 3.
+      # S04-L07 teaches Helm 4 and its Do.md expects v4.3.x; GitHub-hosted runners ship Helm 3.
       - name: Install the pinned Helm 4 (HELM_VERSION in test/versions.env)
         run: ./test/install_helm.sh
 
