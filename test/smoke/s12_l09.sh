@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lesson: s03_l05 Argo CD resource tracking: label vs annotation
+# lesson: s12_l09 Argo CD resource tracking: label vs annotation
 # Resource tracking moved from a label to an annotation in Argo CD 3.0.
 #
 # The lesson's claim: on this cluster (3.5.3), `application.resourceTrackingMethod` defaults to
@@ -25,8 +25,8 @@ step "repo-side invariant: no forced label tracking is committed"
 assert_file_lacks "bootstrap/install.yaml" "resourceTrackingMethod:[[:space:]]*label" \
   "argocd-cm does not force label-based tracking: annotation stays the effective default"
 
-APP="s03l05-probe"
-NS="s03l05-probe"
+APP="s12l09-probe"
+NS="s12l09-probe"
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
 
 cleanup() {

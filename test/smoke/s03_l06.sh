@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lesson: s03_l08 Argo CD rollback vs git revert
+# lesson: s03_l06 Argo CD rollback vs git revert
 # Rollback restores service; only a durable fix to the source of truth closes the gap.
 #
 # The lesson's claim: `argocd app rollback` (or the UI's Rollback button) re-applies a manifest
@@ -22,8 +22,8 @@ tier cluster
 # unconfigured environment.
 argocd_cli_ready
 
-APP="s03l08-probe"
-NS="s03l08-probe"
+APP="s03l06-probe"
+NS="s03l06-probe"
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
 GOOD_IMAGE="hashicorp/http-echo=hashicorp/http-echo:1.0"
 BAD_IMAGE="hashicorp/http-echo=ghcr.io/northwind/storefront:1.4.2-typo"

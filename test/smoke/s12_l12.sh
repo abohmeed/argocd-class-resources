@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lesson: s12_l10 Troubleshooting Argo CD: stuck syncs and OutOfSync loops
+# lesson: s12_l12 Troubleshooting Argo CD: stuck syncs and OutOfSync loops
 # A stuck PreSync hook is diagnosable by name (a missing image-pull secret), not just
 # "stuck"; and ignoreDifferences alone does not stop selfHeal reverting a re-applied field away:
 # it needs RespectIgnoreDifferences too, proven against a real, reconciling Application.
@@ -14,9 +14,9 @@ tier cluster
 # unconfigured environment.
 argocd_cli_ready
 
-HOOK_NS="s12l10-hook"
-APP="s12l10-probe"
-NS="s12l10-probe"
+HOOK_NS="s12l12-hook"
+APP="s12l12-probe"
+NS="s12l12-probe"
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
 
 # ---------------------------------------------------------------------------------------------
@@ -177,7 +177,7 @@ dump_digest() {
   fi
 
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-    { printf '\n### s12_l10 diagnostics: %s\n\n' "${where}"; printf '%s' "${DIGEST}" | sed 's/^/    /'; } >> "${GITHUB_STEP_SUMMARY}" 2>/dev/null || true
+    { printf '\n### s12_l12 diagnostics: %s\n\n' "${where}"; printf '%s' "${DIGEST}" | sed 's/^/    /'; } >> "${GITHUB_STEP_SUMMARY}" 2>/dev/null || true
   fi
 }
 

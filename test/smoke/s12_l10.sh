@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lesson: s03_l04 Writing a custom health check for a CRD Argo CD doesn't understand
+# lesson: s12_l10 Writing a custom health check for a CRD Argo CD doesn't understand
 # Argo CD has no opinion about a k3s HelmChart; the Lua health check gives it one.
 #
 # The lesson's claim (Do.md and Talk.md, premise approved 2026-10-12): Argo CD v3.5.3 has no health
@@ -14,7 +14,7 @@
 # the lesson opens on.
 #
 # argocd-cm is itself GitOps-managed by the argocd self-manage Application with selfHeal:true
-# (s02_l10.sh): a live patch of it alone would be reverted within seconds, so this script turns that
+# (s02_l11.sh): a live patch of it alone would be reverted within seconds, so this script turns that
 # Application's selfHeal off for the duration of the patch, and restores it in cleanup.
 #
 # Where health is read: Argo CD 3.x does not keep per-resource health in the Application object by
@@ -28,9 +28,9 @@
 # Application's status.resources health always comes back empty and proves nothing.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-APP="s03l04-probe"
-NS="s03l04-probe"
-ROW="s03l04-podinfo"
+APP="s12l10-probe"
+NS="s12l10-probe"
+ROW="s12l10-podinfo"
 HC_KEY="resource.customizations.health.helm.cattle.io_HelmChart"
 TMPDIR="$(mktemp -d)"
 LUA_PATCH="${TMPDIR}/argocd-cm-patch.yaml"
@@ -79,7 +79,7 @@ diag_cluster() {
 
 # diag_app <label>: the probe Application as Argo CD holds it right now. Which rows it reports,
 # what the last operation was and who started it, when it last reconciled, what the sync result
-# says about each s03l04 object, what the live HelmChart looks like, and the controller's own
+# says about each s12l10 object, what the live HelmChart looks like, and the controller's own
 # log lines for this app. The spec fields (project, source shape, destination) are printed too,
 # so a wrong destination or source shows up here.
 diag_app() {
@@ -109,8 +109,8 @@ diag_app() {
   # The health read: the same view the lesson's argocd app get shows (see cli_app_json).
   view_json="$(cli_app_json)"
   printf '%s' "${view_json}" | jq -c '{health: (.status.health.status // null), healthMessage: ((.status.health.message // "") | .[0:160])}' 2>/dev/null | sed 's/^/    cli view application health: /' || echo "    cli view application health: (not readable)"
-  printf '%s' "${view_json}" | jq -c '[.status.resources[]? | select((.name // "") | startswith("s03l04")) | {name, kind, status, health: (.health.status // null), healthMessage: ((.health.message // "") | .[0:160])}]' 2>/dev/null | sed 's/^/    cli view rows: /' || true
-  printf '%s' "${app_json}" | jq -c '[.status.operationState.syncResult.resources[]? | select((.name // "") | startswith("s03l04")) | {name, kind, status, hookPhase, syncPhase, message: ((.message // "") | .[0:200])}]' 2>/dev/null | sed 's/^/    syncResult: /' || true
+  printf '%s' "${view_json}" | jq -c '[.status.resources[]? | select((.name // "") | startswith("s12l10")) | {name, kind, status, health: (.health.status // null), healthMessage: ((.health.message // "") | .[0:160])}]' 2>/dev/null | sed 's/^/    cli view rows: /' || true
+  printf '%s' "${app_json}" | jq -c '[.status.operationState.syncResult.resources[]? | select((.name // "") | startswith("s12l10")) | {name, kind, status, hookPhase, syncPhase, message: ((.message // "") | .[0:200])}]' 2>/dev/null | sed 's/^/    syncResult: /' || true
   local hc_json hc_view
   hc_json="$(kubectl get helmchart -n "${NS}" -o json 2>/dev/null || true)"
   if [ -z "${hc_json}" ]; then
@@ -125,9 +125,9 @@ diag_app() {
   fi
   echo "    jobs in ${NS} (the helm controller's install jobs, first 5):"
   kubectl get jobs -n "${NS}" --no-headers 2>/dev/null | head -n 5 | cut -c1-200 | sed 's/^/      /' || true
-  echo "    controller log lines naming s03l04 (last 15 min, at most 25):"
+  echo "    controller log lines naming s12l10 (last 15 min, at most 25):"
   kubectl logs -n argocd statefulset/argocd-application-controller --since=15m 2>/dev/null \
-    | grep -E 's03l04' | tail -n 25 | cut -c1-260 | sed 's/^/      /' || true
+    | grep -E 's12l10' | tail -n 25 | cut -c1-260 | sed 's/^/      /' || true
   echo "    events in ${NS} (last 12):"
   kubectl get events -n "${NS}" --sort-by=.lastTimestamp 2>/dev/null | tail -n 12 | cut -c1-240 | sed 's/^/      /' || true
   echo "    events on the Application (last 6):"
@@ -160,11 +160,11 @@ observe_timeline() {
 recap() {
   local j
   j="$(cli_app_json)"
-  echo "  [RECAP s03_l04] $1 judged value: [${2:-empty}]"
-  echo "  [RECAP s03_l04] exits: broken sync ${sync_rc}, hard-refresh ${hr_rc}, good sync ${good_sync_rc} (not judged); timeline first health: ${TL_FIRST:-not read}"
-  printf '%s' "${j}" | jq -r '"  [RECAP s03_l04] app sync=\(.status.sync.status // "unknown") health=\(.status.health.status // "unknown") opPhase=\(.status.operationState.phase // "none") initiatedBy=\(.status.operationState.operation.initiatedBy // "none") reconciledAt=\(.status.reconciledAt // "none") opFinishedAt=\(.status.operationState.finishedAt // "none")"' 2>/dev/null \
-    || echo "  [RECAP s03_l04] app: not readable"
-  printf '%s' "${j}" | jq -r '"  [RECAP s03_l04] rows: " + ([.status.resources[]? | select((.name // "") | startswith("s03l04")) | "\(.name)=\(.health.status // "null")"] | join(", "))' 2>/dev/null \
+  echo "  [RECAP s12_l10] $1 judged value: [${2:-empty}]"
+  echo "  [RECAP s12_l10] exits: broken sync ${sync_rc}, hard-refresh ${hr_rc}, good sync ${good_sync_rc} (not judged); timeline first health: ${TL_FIRST:-not read}"
+  printf '%s' "${j}" | jq -r '"  [RECAP s12_l10] app sync=\(.status.sync.status // "unknown") health=\(.status.health.status // "unknown") opPhase=\(.status.operationState.phase // "none") initiatedBy=\(.status.operationState.operation.initiatedBy // "none") reconciledAt=\(.status.reconciledAt // "none") opFinishedAt=\(.status.operationState.finishedAt // "none")"' 2>/dev/null \
+    || echo "  [RECAP s12_l10] app: not readable"
+  printf '%s' "${j}" | jq -r '"  [RECAP s12_l10] rows: " + ([.status.resources[]? | select((.name // "") | startswith("s12l10")) | "\(.name)=\(.health.status // "null")"] | join(", "))' 2>/dev/null \
     || true
 }
 
@@ -236,9 +236,9 @@ kubectl get crd helmcharts.helm.cattle.io >/dev/null 2>&1 \
 _pass "helmcharts.helm.cattle.io is served"
 diag_cluster "after the precondition check, before this script changes anything"
 
-step "confirm the argocd Application (self-management) exists, from s02_l10.sh"
+step "confirm the argocd Application (self-management) exists, from s02_l11.sh"
 kubectl get application argocd -n argocd >/dev/null 2>&1 \
-  || _fail "no Application named 'argocd' in the argocd namespace: the self-management from s02_l10.sh is missing; this script cannot safely test the Lua-through-Git claim without it"
+  || _fail "no Application named 'argocd' in the argocd namespace: the self-management from s02_l11.sh is missing; this script cannot safely test the Lua-through-Git claim without it"
 _pass "argocd (self-management) Application is present"
 
 cleanup() {

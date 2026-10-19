@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lesson: s12_l09 Performance and tuning at scale
+# lesson: s12_l11 Performance and tuning at scale
 # Timeout.reconciliation/jitter and the repo-server's parallelism limit are real,
 # live-editable knobs, and the defaults this lesson claims are the defaults this cluster
 # actually ships with.
