@@ -9,6 +9,19 @@
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/versions.env"
 
+# Pull Docker official images (Argo CD's redis comes from public.ecr.aws/docker/library) through
+# mirror.gcr.io, which serves the same digests. On 2026-10-18, 20 and 21 argocd-redis sat in
+# ImagePullBackOff on shared runner IPs; containerd still falls back to public.ecr.aws if the mirror fails.
+sudo mkdir -p /etc/rancher/k3s
+sudo tee /etc/rancher/k3s/registries.yaml >/dev/null <<'YAML'
+mirrors:
+  public.ecr.aws:
+    endpoint:
+      - "https://mirror.gcr.io"
+    rewrite:
+      "^docker/library/(.*)": "library/$1"
+YAML
+
 for attempt in 1 2 3; do
   if curl -sfL --retry 5 --retry-all-errors --connect-timeout 20 https://get.k3s.io \
        | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -; then

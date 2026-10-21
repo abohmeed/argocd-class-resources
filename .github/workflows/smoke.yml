@@ -127,6 +127,7 @@ jobs:
         if: failure()
         run: |
           kubectl get pods -A || true
+          kubectl get events -A --field-selector type=Warning || true
           kubectl -n argocd logs deploy/argocd-repo-server --tail=100 || true
           kubectl -n argocd logs statefulset/argocd-application-controller --tail=100 || true
 
