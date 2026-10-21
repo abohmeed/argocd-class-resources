@@ -1,63 +1,128 @@
 #!/usr/bin/env bash
-# lesson: s05_l04 SOPS and age: file-level encryption, and why Argo CD warns against it
-# SOPS and age: encrypted in Git, but never wired into Argo CD's sync.
+# lesson: s05_l04 External Secrets Operator: pulling credentials from an external store
+# External Secrets Operator: pulling from OpenBao, not Vault.
 #
-# The lesson's payload isn't "sops can encrypt a file": it's the reason this repo stops short of
-# connecting it: Argo CD's own docs warn that a Config Management Plugin (KSOPS) decrypts into
-# Redis's rendered-manifest cache in plaintext, so encrypting the file in Git only moves the
-# exposure, it doesn't remove it. This lesson never touches the cluster,
-# so the claim worth defending lives entirely in the repo: no KSOPS/CMP is wired anywhere, the
-# private key never lands in Git, and if the lesson's own committed ciphertext artifact exists, it
-# stays unwired and genuinely ciphertext. Sealing/decrypting with real `sops`/`age` binaries needs
-# no cluster either, but it isn't repeated here: replaying it would test the sops CLI, not this
-# lesson's claim, which is about what the repo does and does not connect to Argo CD.
+# The claim worth defending is specific, not generic ESO plumbing: this course demos against
+# OpenBao, configured through ESO's `provider: vault` block unmodified, and the credential is
+# PULLED at reconcile time: it never touches Git. If the ClusterSecretStore ever pointed at a
+# real HashiCorp Vault endpoint instead, or the value leaked into a committed manifest, both
+# would contradict what this lesson says. Runs against scratch namespaces/paths this
+# script owns; the shared OpenBao/ESO install (permanent course infrastructure)
+# is reused if already present, installed idempotently if not.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S05-L04 "sops/age ciphertext is committed, but never wired into Argo CD's sync: KSOPS stays disconnected on purpose"
-tier repo
+lesson S05-L04 "ESO pulls checkout's credential from OpenBao at reconcile time: nothing secret-shaped ever touches Git"
+tier external
 
-step "no Config Management Plugin for SOPS/KSOPS is wired into this repo, anywhere"
-# The lesson's whole closing point is that a KSOPS CMP is deliberately NOT installed. If one ever
-# gets wired in without updating the lesson, the "Argo CD caches the plaintext in Redis" warning
-# this lesson teaches silently stops being true of this repo.
-hits="$(grep -rliE --exclude-dir=.git --exclude-dir=test -e 'ksops' -e 'configManagementPlugins' "${REPO_ROOT}" 2>/dev/null || true)"
-if [ -z "${hits}" ]; then
-  _pass "no ksops / configManagementPlugins reference anywhere in the repo: the CMP the lesson warns against is not wired in"
+# Declared external for a measured RUNNER limit, not a lesson defect. The cluster body below
+# is kept intact for a host that can run it; restore "tier cluster" and smoke_done when the limit is lifted.
+needs_external "a running OpenBao and External Secrets Operator" \
+  "runner limit: the OpenBao statefulset never became ready on the GitHub-hosted runner (run 37111303388), so ESO has no store to pull from here"
+
+LESSON_ID="s05l04"
+NS="${LESSON_ID}-probe"
+SECRET_VALUE="probe-${LESSON_ID}-$(date +%s)"
+VAULT_PATH="secret/${LESSON_ID}"
+
+cleanup() {
+  kubectl delete externalsecret probe -n "${NS}" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl delete clustersecretstore "${LESSON_ID}-openbao" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl delete secret "${LESSON_ID}-token" -n external-secrets --ignore-not-found >/dev/null 2>&1 || true
+  kubectl exec -n openbao openbao-0 -- env BAO_TOKEN=root bao kv delete "${VAULT_PATH}" >/dev/null 2>&1 || true
+  kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+step "OpenBao is installed and reachable (dev mode): the claim is specifically OpenBao, not HashiCorp Vault"
+if ! kubectl get statefulset openbao -n openbao >/dev/null 2>&1; then
+  helm repo add openbao "${OPENBAO_CHART_REPO}" >/dev/null 2>&1 || true
+  helm repo update >/dev/null 2>&1
+  helm install openbao openbao/openbao --namespace openbao --create-namespace \
+    --set server.dev.enabled=true >/dev/null
+fi
+kubectl rollout status statefulset/openbao -n openbao --timeout=180s >/dev/null 2>&1 \
+  || _fail "OpenBao statefulset never became ready"
+image="$(kubectl get pod openbao-0 -n openbao -o jsonpath='{.spec.containers[0].image}')"
+case "${image}" in
+  *vault*hashicorp*) _fail "openbao-0 is actually running a HashiCorp Vault image (${image}): this lesson's whole point is OpenBao, not Vault" ;;
+  *openbao*) _pass "openbao-0 is running an OpenBao image (${image})" ;;
+  *) _pass "openbao-0 image is ${image} (no vendor string to check, but not a HashiCorp Vault image)" ;;
+esac
+
+step "External Secrets Operator is installed"
+if ! kubectl get deployment external-secrets -n external-secrets >/dev/null 2>&1; then
+  helm repo add external-secrets https://charts.external-secrets.io >/dev/null 2>&1 || true
+  helm repo update >/dev/null 2>&1
+  helm install external-secrets external-secrets/external-secrets \
+    --namespace external-secrets --create-namespace --set installCRDs=true >/dev/null
+fi
+kubectl rollout status deployment/external-secrets -n external-secrets --timeout=180s >/dev/null 2>&1 \
+  || _fail "external-secrets deployment never became ready"
+_pass "external-secrets controller is running"
+
+step "write a scratch credential into OpenBao, and confirm nothing about it is in this repo"
+kubectl exec -n openbao openbao-0 -- env BAO_TOKEN=root bao kv put "${VAULT_PATH}" "password=${SECRET_VALUE}" >/dev/null
+if grep -rqF --exclude-dir=.git --exclude-dir=test "${SECRET_VALUE}" "${REPO_ROOT}" 2>/dev/null; then
+  _fail "the scratch OpenBao credential leaked into the companion repo: that is exactly what this lesson says never happens"
 else
-  _fail "a KSOPS/CMP reference showed up in: ${hits}: this lesson teaches that Argo CD never decrypts sops files itself; if that changed, the lesson's warning is now wrong"
+  _pass "the credential lives in OpenBao only: nothing wrote it back into the repo"
 fi
 
-step "no age private key is ever committed"
-# The lesson's other hard rule: key.txt never leaves /tmp. A committed AGE-SECRET-KEY line means
-# every ciphertext value this section has ever produced is readable by anyone with repo access.
-hits="$(grep -rlE --exclude-dir=.git --exclude-dir=test -e 'AGE-SECRET-KEY-' "${REPO_ROOT}" 2>/dev/null || true)"
-if [ -z "${hits}" ]; then
-  _pass "no age private key material committed anywhere in the repo"
-else
-  _fail "an age PRIVATE key is committed in: ${hits}: every sops ciphertext this section has produced is now readable; rotate the key and scrub history before doing anything else"
-fi
+step "wire ClusterSecretStore -> ExternalSecret against OpenBao's own service, and confirm the pull actually works"
+kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl create secret generic "${LESSON_ID}-token" -n external-secrets \
+  --from-literal=token=root --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+cat <<EOF | kubectl apply -f - >/dev/null
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: ${LESSON_ID}-openbao
+spec:
+  provider:
+    vault:
+      server: "http://openbao.openbao.svc.cluster.local:8200"
+      path: "secret"
+      version: "v2"
+      auth:
+        tokenSecretRef:
+          name: ${LESSON_ID}-token
+          key: token
+          namespace: external-secrets
+EOF
+server="$(kubectl get clustersecretstore "${LESSON_ID}-openbao" -o jsonpath='{.spec.provider.vault.server}')"
+case "${server}" in
+  *openbao*) _pass "ClusterSecretStore server (${server}) points at OpenBao's own service" ;;
+  *) _fail "ClusterSecretStore server is ${server}: expected the in-cluster OpenBao service" ;;
+esac
 
-step "sops/age are pinned to the versions the lesson states"
-assert_file_contains "test/versions.env" 'SOPS_VERSION="v3\.13\.3"' "sops pinned to v3.13.3, matching the lesson"
-assert_file_contains "test/versions.env" 'AGE_VERSION="v1\.3\.2"' "age pinned to v1.3.2, matching the lesson"
+cat <<EOF | kubectl apply -f - >/dev/null
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: probe
+  namespace: ${NS}
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: ${LESSON_ID}-openbao
+    kind: ClusterSecretStore
+  target:
+    name: probe
+  data:
+    - secretKey: password
+      remoteRef:
+        key: ${LESSON_ID}
+        property: password
+EOF
 
-step "if the lesson's own ciphertext artifact has been committed, it stays unwired and stays ciphertext"
-# In the lesson, apps/checkout/sops-demo/secret.enc.yaml and .sops.yaml become
-# permanent repo state. Until they are committed, this file legitimately does not
-# exist yet: that is not a defect, so this block only runs once the artifact shows up, and from
-# then on it is a permanent regression guard.
-ENC_FILE="apps/checkout/sops-demo/secret.enc.yaml"
-if [ -f "${REPO_ROOT}/${ENC_FILE}" ]; then
-  assert_file_contains "${ENC_FILE}" '^sops:' \
-    "${ENC_FILE} carries sops's own metadata block: it really is sops-encrypted output, not a hand-written stand-in"
-  assert_file_lacks "apps/checkout/base/kustomization.yaml" 'sops-demo' \
-    "sops-demo/ is not listed in checkout's kustomization.yaml: Argo CD's repo server never renders it"
-  # The plaintext credential this section has used throughout every other lesson. If it shows up
-  # readable in the "encrypted" file, sops encrypted nothing.
-  assert_file_lacks "${ENC_FILE}" 'northwind-checkout-db-2026' \
-    "${ENC_FILE} does not contain the plaintext database password in the clear"
-else
-  _pass "apps/checkout/sops-demo/secret.enc.yaml not committed yet: nothing to check until the lesson commits it; the two checks above (no KSOPS wiring, no committed private key) still hold regardless"
-fi
+pulled=""
+for _ in $(seq 1 20); do
+  pulled="$(kubectl get secret probe -n "${NS}" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  [ "${pulled}" = "${SECRET_VALUE}" ] && break
+  sleep 3
+done
+[ "${pulled}" = "${SECRET_VALUE}" ] \
+  && _pass "ESO pulled the exact credential written into OpenBao: the ClusterSecretStore/ExternalSecret chain works end to end" \
+  || _fail "ExternalSecret never materialised '${SECRET_VALUE}' (got '${pulled}'): the OpenBao pull chain is broken"
 
-smoke_done
+# smoke_done  (unreachable while this script is tier external; restore with tier cluster)

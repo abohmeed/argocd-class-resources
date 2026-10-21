@@ -119,7 +119,7 @@ kubectl patch configmap argocd-cm -n argocd --type merge -p \
 
 step "reach argocd-server directly and log in as admin first, to set the throwaway account's password"
 up="no"
-# The lesson logs in through argocd.local (Do.md, S02-L08 step 12): Traefik terminates TLS on 443 with a
+# The lesson logs in through argocd.local (Do.md, S02-L09 step 12): Traefik terminates TLS on 443 with a
 # self-signed certificate, and argocd-server behind it runs insecure.
 SCHEME=https; LOGIN_TLS="--insecure"
 for _ in $(seq 1 20); do curl -sk "${SCHEME}://argocd.local/healthz" >/dev/null 2>&1 && { up="yes"; break; }; sleep 1; done

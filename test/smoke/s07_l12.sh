@@ -404,7 +404,7 @@ diag "argocd-server may act as ${SA} for get on pods/log and delete on pods (sco
 
 step "reach argocd-server as admin: an account whose OWN Argo CD RBAC has no reason to be denied logs or delete"
 up="no"
-# The lesson logs in through argocd.local (Do.md, S02-L08 step 12): Traefik terminates TLS on 443 with a
+# The lesson logs in through argocd.local (Do.md, S02-L09 step 12): Traefik terminates TLS on 443 with a
 # self-signed certificate, and argocd-server behind it runs insecure.
 SCHEME=https; LOGIN_TLS="--insecure"
 for _ in $(seq 1 20); do curl -sk "${SCHEME}://argocd.local/healthz" >/dev/null 2>&1 && { up="yes"; break; }; sleep 1; done

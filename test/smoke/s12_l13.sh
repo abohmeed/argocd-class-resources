@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lesson: s12_l11 Troubleshooting Argo CD: false health, silent webhooks, repo-server OOM
+# lesson: s12_l13 Troubleshooting Argo CD: false health, silent webhooks, repo-server OOM
 # Three failures that all look like something else: a Lua health check can report
 # Degraded on a perfectly healthy workload, a webhook secret mismatch dies silently while
 # GitHub still shows green, and the repo-server OOMs under real rendering load and comes back
@@ -21,8 +21,8 @@ lesson S12-L13 "a lying Lua health check, a dead webhook secret, and a repo-serv
 tier cluster
 
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
-APP="s12l11-probe"
-NS="s12l11-probe"
+APP="s12l13-probe"
+NS="s12l13-probe"
 OOM_LIMIT="64Mi"
 OOM_COUNT=30
 orig_cm=""
@@ -57,7 +57,7 @@ cleanup() {
   kubectl delete application "${APP}" -n argocd --wait=false >/dev/null 2>&1 || true
   kubectl delete namespace "${NS}" --wait=false >/dev/null 2>&1 || true
   for i in $(seq -w 1 "${OOM_COUNT}"); do
-    kubectl delete application "s12l11-oom-${i}" -n argocd --wait=false >/dev/null 2>&1 || true
+    kubectl delete application "s12l13-oom-${i}" -n argocd --wait=false >/dev/null 2>&1 || true
   done
   if [ -n "${oom_dir}" ]; then
     rm -rf "${oom_dir}"
@@ -138,7 +138,7 @@ orig_secret_val="$(kubectl -n argocd get secret argocd-secret -o jsonpath='{.dat
 [ -n "${orig_secret_val}" ] && orig_secret="{\"data\":{\"webhook.github.secret\":\"${orig_secret_val}\"}}"
 # A fresh install has no webhook.github.secret key at all (CI): then "restore" means removing the key again.
 [ -z "${orig_secret_val}" ] && secret_key_absent=yes
-kubectl -n argocd patch secret argocd-secret -p '{"stringData": {"webhook.github.secret": "s12l11-deliberately-wrong"}}' >/dev/null
+kubectl -n argocd patch secret argocd-secret -p '{"stringData": {"webhook.github.secret": "s12l13-deliberately-wrong"}}' >/dev/null
 kubectl -n argocd rollout restart deploy argocd-server >/dev/null
 kubectl -n argocd rollout status deploy argocd-server --timeout=120s >/dev/null
 _pass "argocd-server restarted on a webhook secret that no longer matches any real sender: this is the state a real, unrotated GitHub secret produces; there is no cluster-side error to assert against, which is exactly the lesson's point"
@@ -178,14 +178,14 @@ _pass "argocd-repo-server rolled out at a ${OOM_LIMIT} memory limit: the pod tha
 # own destination namespace, so each one is a distinct manifest render, applied together as Do.md Step 6 does.
 oom_dir="$(mktemp -d)"
 for i in $(seq -w 1 "${OOM_COUNT}"); do
-  cat > "${oom_dir}/s12l11-oom-${i}.yaml" <<EOF
+  cat > "${oom_dir}/s12l13-oom-${i}.yaml" <<EOF
 apiVersion: argoproj.io/v1alpha1
 kind: Application
-metadata: {name: s12l11-oom-${i}, namespace: argocd}
+metadata: {name: s12l13-oom-${i}, namespace: argocd}
 spec:
   project: default
   source: {repoURL: "${REPO}", targetRevision: main, path: apps/storefront/base}
-  destination: {server: "https://kubernetes.default.svc", namespace: s12l11-oom-${i}}
+  destination: {server: "https://kubernetes.default.svc", namespace: s12l13-oom-${i}}
   syncPolicy: {}
 EOF
 done
@@ -214,7 +214,7 @@ else
   kubectl -n argocd logs deploy/argocd-repo-server --tail=5 2>/dev/null | sed 's/^/  diag  /' || true
   peak="$(kubectl -n argocd top pod -l app.kubernetes.io/name=argocd-repo-server --no-headers 2>/dev/null | awk '{print $3}' | head -1 || true)"
   for i in $(seq -w 1 "${OOM_COUNT}"); do
-    kubectl delete application "s12l11-oom-${i}" -n argocd --wait=false >/dev/null 2>&1 || true
+    kubectl delete application "s12l13-oom-${i}" -n argocd --wait=false >/dev/null 2>&1 || true
   done
   # 2026-10-13 (CI run 5): on a GitHub runner the lesson's own load (30 Applications on apps/storefront/base, most of
   # them served from the manifest cache) kept the repo-server at about 54Mi, under the 64Mi limit, so no OOM happens
@@ -225,7 +225,7 @@ else
 fi
 
 for i in $(seq -w 1 "${OOM_COUNT}"); do
-  kubectl delete application "s12l11-oom-${i}" -n argocd --wait=false >/dev/null 2>&1 || true
+  kubectl delete application "s12l13-oom-${i}" -n argocd --wait=false >/dev/null 2>&1 || true
 done
 
 step "restoring the memory limit lets the repo-server run cleanly again"

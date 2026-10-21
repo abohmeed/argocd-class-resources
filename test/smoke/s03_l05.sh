@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lesson: s03_l07 ignoreDifferences vs RespectIgnoreDifferences in Argo CD
+# lesson: s03_l05 ignoreDifferences vs RespectIgnoreDifferences in Argo CD
 # IgnoreDifferences hides a field from the diff; it does not protect it from a sync.
 # RespectIgnoreDifferences does protect it, and only on a resource that already exists.
 #
@@ -31,8 +31,8 @@ tier cluster
 # unconfigured environment.
 argocd_cli_ready
 
-APP="s03l07-probe"
-NS="s03l07-probe"
+APP="s03l05-probe"
+NS="s03l05-probe"
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
 ANNOTATION_KEY="northwind.io/scanned-at"
 JSON_POINTER='/metadata/annotations/northwind.io~1scanned-at'

@@ -9,7 +9,7 @@
 # UI's own DELETE /api/v1/applications/{name}/resource call, made with curl. The CLI's delete-resource
 # cannot address a Pod (see api_delete_pod below), so it is not used. No browser is needed to exercise the claim.
 #
-# Logs in through argocd.local, the lesson's route, which the TLS gateway from s02_l08.sh serves.
+# Logs in through argocd.local, the lesson's route, which the TLS gateway from s02_l09.sh serves.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 lesson S07-L07 "since Argo CD 3.0, update/delete on applications alone no longer reaches a managed Pod: only the explicit update/* and delete/* wildcard actions do"
@@ -96,7 +96,7 @@ kubectl patch configmap argocd-rbac-cm -n argocd --type merge -p \
 
 step "reach argocd-server and set the account's password"
 up="no"
-# The lesson logs in through argocd.local (Do.md, S02-L08 step 12): Traefik terminates TLS on 443 with a
+# The lesson logs in through argocd.local (Do.md, S02-L09 step 12): Traefik terminates TLS on 443 with a
 # self-signed certificate, and argocd-server behind it runs insecure.
 SCHEME=https; LOGIN_TLS="--insecure"
 for _ in $(seq 1 20); do curl -sk "${SCHEME}://argocd.local/healthz" >/dev/null 2>&1 && { up="yes"; break; }; sleep 1; done

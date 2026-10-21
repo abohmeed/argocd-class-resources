@@ -30,7 +30,7 @@ assert_file_contains "bootstrap/self-manage-app.yaml" 'path: bootstrap$' \
 
 step "on the live cluster, the argocd (self-manage) Application actually carries the wave -1 annotation"
 # The lesson's Step 9 applies the committed bootstrap/self-manage-app.yaml from main. CI never replays
-# that step, and s02_l10.sh (an S01 to S09 script, so it reads the baseline tree) applies the baseline
+# that step, and s02_l11.sh (an S01 to S09 script, so it reads the baseline tree) applies the baseline
 # copy, which has no wave. Replay Step 9's apply here, so the live object is the committed one.
 kubectl apply -n argocd -f "${REPO_ROOT}/bootstrap/self-manage-app.yaml" >/dev/null \
   || _fail "could not apply the committed bootstrap/self-manage-app.yaml (the lesson's Step 9)"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lesson: s03_l06 syncPolicy.automated, selfHeal, and prune explained
+# lesson: s03_l04 syncPolicy.automated, selfHeal, and prune explained
 # Automated, selfHeal and prune are three separate switches.
 #
 # The lesson's claim is behavioural, not textual: `automated` alone DETECTS drift and leaves it,
@@ -12,8 +12,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 lesson S03-L04 "automated detects, selfHeal reverts, prune restores: three switches, three behaviours"
 tier cluster
 
-APP="s03l06-probe"
-NS="s03l06-probe"
+APP="s03l04-probe"
+NS="s03l04-probe"
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
 
 cleanup() {

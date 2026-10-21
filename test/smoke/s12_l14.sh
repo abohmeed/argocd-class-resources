@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lesson: s12_l12 Security hardening and the audit trail: what it actually proves
+# lesson: s12_l14 Security hardening and the audit trail: what it actually proves
 # Three independent logs (git history, Argo CD's sync history, the Kubernetes API
 # audit log) correlate into one traceable story: who committed it, when Argo CD synced it, and
 # which service account the API server saw apply it.

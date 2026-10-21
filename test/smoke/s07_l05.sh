@@ -9,7 +9,7 @@
 #
 # This lesson tests Argo CD's OWN internal RBAC (policy evaluated by argocd-server against a
 # token), which only fires through the real API: a kubectl-only test would bypass it entirely.
-# The lesson logs in against `argocd.local`, the TLS gateway built in s02_l08.sh, and so does this script.
+# The lesson logs in against `argocd.local`, the TLS gateway built in s02_l09.sh, and so does this script.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
 lesson S07-L05 "a project role token scoped to get and sync on one project works there and is denied everywhere else, including a different project's app"
@@ -74,7 +74,7 @@ spec:
 EOF
 
 step "reach argocd-server through argocd.local, the lesson's own route"
-# The lesson logs in through argocd.local (Do.md, S02-L08 step 12): Traefik terminates TLS on 443 with a
+# The lesson logs in through argocd.local (Do.md, S02-L09 step 12): Traefik terminates TLS on 443 with a
 # self-signed certificate, and argocd-server behind it runs insecure.
 SCHEME=https; LOGIN_TLS="--insecure"
 up="no"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install the Helm release the course pins (HELM_VERSION in test/versions.env) on the CI runner.
 #
-# GitHub-hosted runners ship Helm 3. S04-L05 teaches Helm 4 (its Do.md expects `helm version` to
+# GitHub-hosted runners ship Helm 3. S04-L07 teaches Helm 4 (its Do.md expects `helm version` to
 # read v4.3.x), so the cluster job installs the pinned release from get.helm.sh and checks its
 # published sha256 before installing it. Downloads are retried; a wrong version is a failure.
 set -euo pipefail

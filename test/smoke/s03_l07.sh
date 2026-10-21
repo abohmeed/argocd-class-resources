@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lesson: s03_l09 The App of Apps pattern in Argo CD
+# lesson: s03_l07 The App of Apps pattern in Argo CD
 # App of Apps: the parent's managed resources are Application objects, not Deployments.
 #
 # The lesson's claim is about what KIND of thing the parent manages: `bootstrap/root-app.yaml`
@@ -25,11 +25,11 @@ tier cluster
 # unconfigured environment.
 argocd_cli_ready
 
-PARENT="s03l09-root"
-CHILD_DEV="s03l09-child-dev"
-CHILD_PAY="s03l09-child-payments"
-NS_DEV="s03l09-dev"
-NS_PAY="s03l09-payments"
+PARENT="s03l07-root"
+CHILD_DEV="s03l07-child-dev"
+CHILD_PAY="s03l07-child-payments"
+NS_DEV="s03l07-dev"
+NS_PAY="s03l07-payments"
 REPO="https://github.com/abohmeed/argocd-class-resources.git"
 TMPDIR="$(mktemp -d)"
 

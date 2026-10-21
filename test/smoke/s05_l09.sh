@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lesson: s05_l07 Securing Argo CD's own secrets: the chicken-and-egg problem
+# lesson: s05_l09 Securing Argo CD's own secrets: the chicken-and-egg problem
 # Securing Argo CD's own secrets: the chicken-and-egg problem.
 #
 # The claim is mechanical and doesn't need a real GitHub PAT to prove: Argo CD recognises a
@@ -11,10 +11,10 @@
 # `argocd-class-resources-creds` Secret or any live GitHub token.
 source "$(dirname "${BASH_SOURCE[0]}")/../assert/lib.sh"
 
-lesson S05-L07 "a SealedSecret can materialise Argo CD's own repo-credential shape: the label is what makes it count, not how it got there"
+lesson S05-L09 "a SealedSecret can materialise Argo CD's own repo-credential shape: the label is what makes it count, not how it got there"
 tier cluster
 
-LESSON_ID="s05l07"
+LESSON_ID="s05l09"
 SECRET_NAME="${LESSON_ID}-repo-creds-probe"
 WORKDIR="$(mktemp -d)"
 PROBE_VALUE="probe-${LESSON_ID}-$(date +%s)"
